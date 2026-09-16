@@ -1,0 +1,17 @@
+[dumpfile] "C:\Users\Administrator\AppData\Local\Temp\tmpbrhuf56k\la0tmp_continous.vcd"
+[dumpfile_mtime] "Mon Aug 31 09:30:21 2026"
+[dumpfile_size] 650
+[savefile] "D:\develop\mygit\fpgachina\efinix\sobel\la0_waveform.gtkw"
+[timestart] 0
+[size] 1000 600
+[pos] -1 -1
+*0.000000 c 512 1536 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[signals_width] 126
+[sst_expanded] 1
+@22
+top.cmos_href
+top.cmos_vsync
+top.u_cmos_top_0/u_cmos_dcfifo_0/wr_datacount_o[11:0]
+top.u_cmos_top_0/u_cmos_dcfifo_0/rd_datacount_o[11:0]
+top.u_cmos_top_0/u_cmos_scfifo_0/wr_datacount_o[10:0]
+top.u_cmos_top_0/u_cmos_scfifo_0/rd_datacount_o[9:0]

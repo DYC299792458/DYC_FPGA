@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# Efinity (Efinix) project ignore rules
+#
+# Tracked on purpose:
+#   HDL sources (*.v, *.sv, *.svh, *.vh, *.vhd), Efinity project files
+#   (*.xml, *.peri.xml), timing constraints (*.sdc, *.pt.sdc),
+#   IP deliverables under ip/ (settings.json, IP HDL, devkit/example files),
+#   debug_profile.wizard.json (referenced by Ti60_Demo.xml).
+# ---------------------------------------------------------------------------
+
+# Efinity build output and per-flow working directories (any depth)
+/outflow/
+work_syn/
+work_pnr/
+work_pt/
+work_dbg/
+
+# Efinity IP Manager cache (binary pickles); settings.json keeps the settings
+ipm/
+
+# Efinity project / tool lock files
+.lock
+*.lock
+
+# Efinity, JTAG and tool logs
+*.log
+*.log.[0-9]*
+efinity_dbg.jtag.log*
+*.jou
+*.str
+
+# Debugger / simulator generated databases and waveform dumps
+*.vcd
+*.vdb
+*.wlf
+*.fsdb
+
+# ModelSim / Questa compiled libraries and project artifacts
+work/
+*.qdb
+*.qpg
+*.qtl
+*.mpf
+*.mti
+transcript
+
+# Editor / tool temporary files
+*.tmp
+*.temp
+*~
+*.orig
+*.rej
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
