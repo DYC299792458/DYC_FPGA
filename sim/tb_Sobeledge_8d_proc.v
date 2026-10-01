@@ -48,6 +48,7 @@ reg         veop = 1'b0;
 
 wire [7:0] d_sum, d_4d;
 wire [7:0] g_sum;					//dut_sum 的 source_gray
+wire [7:0] b_sum;					//dut_sum 的 source_bin (二值边缘, 与模式无关)
 wire       v_sum, v_4d;
 wire       sop_sum, eop_sum, sop_4d, eop_4d;
 
@@ -56,7 +57,8 @@ Sobeledge_8d_proc #(.WIDTH(WIDTH),.HEIGHT(HEIGHT),.SOBEL_MODE_4DIR(0)) dut_sum (
 	.clk(clk), .rst_n(rst_n), .mode(mode), .threshold(thr),
 	.sink_sop(vsop), .sink_eop(veop), .sink_valid(vin), .sink_data(din),
 	.source_sop(sop_sum), .source_valid(v_sum), .source_data(d_sum), .source_eop(eop_sum),
-	.source_gray(g_sum)
+	.source_gray(g_sum),
+	.source_bin(b_sum)
 );
 Sobeledge_8d_proc #(.WIDTH(WIDTH),.HEIGHT(HEIGHT),.SOBEL_MODE_4DIR(1)) dut_4d (
 	.clk(clk), .rst_n(rst_n), .mode(mode), .threshold(thr),
@@ -76,6 +78,7 @@ integer    i;
 reg [15:0] col_white [0:WIDTH-1];	// 二值: 每列白点数
 reg [15:0] row_white [0:HEIGHT-1];	// 二值: 每行白点数
 reg [7:0]  col_gray  [0:WIDTH-1];	// 分屏用灰度输出(应等于同列输入像素)
+reg [15:0] col_bin   [0:WIDTH-1];	// 二值边缘白点数(与显示模式无关)
 reg [7:0]  col_max   [0:WIDTH-1];	// 强度: 每列最大值
 reg [7:0]  col_max4d [0:WIDTH-1];	// 强度(四方向): 每列最大值
 reg [7:0]  col_raw   [0:WIDTH-1];	// 原图: 每列采样值
@@ -91,6 +94,7 @@ begin
 		col_max4d[i] = 8'h00;
 		col_raw[i]   = 8'h00;
 		col_gray[i]  = 8'h00;
+		col_bin[i]   = 16'd0;
 	end
 	for(i=0;i<HEIGHT;i=i+1)
 		row_white[i] = 16'd0;
@@ -109,6 +113,7 @@ always @(posedge clk) begin
 			col_white[o_col] <= col_white[o_col] + 1'b1;
 			row_white[o_row] <= row_white[o_row] + 1'b1;
 		end
+		if(b_sum == 8'hff) col_bin[o_col] <= col_bin[o_col] + 1'b1;
 		if(sop_sum) sop_cnt <= sop_cnt + 1;
 		if(eop_sum) eop_cnt <= eop_cnt + 1;
 		if(dbg_n > 0) begin
@@ -225,6 +230,11 @@ initial begin
 	$display("   max=%0d (0x%h), columns with data=%0d", maxv, maxv, ncol);
 	chk(maxv == EXP_MAX_SUM, "|Gx|+|Gy| magnitude correct (448>>3=0x38)");
 	chk(ncol == 2, "vertical edge affects exactly 2 columns");
+	// 强度模式下, 二值边缘输出(source_bin)仍应是2列, 说明它不受显示模式影响
+	ncol = 0;
+	for(c=2;c<=12;c=c+1) if(col_bin[c] != 0) ncol = ncol + 1;
+	$display("   source_bin columns in strength mode = %0d", ncol);
+	chk(ncol == 2, "source_bin independent of display mode");
 
 	//--------------- T4 阈值 256 --------------
 	$display("");

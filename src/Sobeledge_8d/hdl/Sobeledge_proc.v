@@ -21,7 +21,8 @@ parameter SOBEL_MODE_4DIR = 0
 	output          source_eop,
 	output          source_valid,
 	output  [7:0]   source_data,		//Sobel边缘检测结果
-	output  [7:0]   source_gray			//与 source_data 同延迟的原图灰度(供分屏显示用)
+	output  [7:0]   source_gray,		//与 source_data 同延迟的原图灰度(供分屏显示用)
+	output  [7:0]   source_bin			//二值化边缘(与模式无关, 供彩色叠加用)
 );
 
 // 3x3像素矩阵
@@ -169,6 +170,8 @@ assign 	source_data = (mode==2'd1) ? Gedge[10:3] :
                                       matrix_p22_dly;
 // 分屏显示用: 输出与 source_data 同延迟、逐像素对齐的灰度原图
 assign 	source_gray = matrix_p22_dly;
+// 彩色叠加用: 无论当前是哪种显示模式, 都输出一份"Gedge>=阈值"的二值边缘
+assign 	source_bin = (Gedge >= threshold) ? 8'hff : 8'h00;
 shift_regs#(
 .DWIDTH(3),     
 .DELAY_DUTY(4)

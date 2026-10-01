@@ -973,6 +973,7 @@ always@(posedge w_cmos_pclk or negedge rstn_sys)
 wire        sobel_sop, sobel_valid, sobel_eop;
 wire [7:0]  sobel_data;
 wire [7:0]  sobel_gray;		//与sobel_data同延迟的原图灰度(分屏显示用)
+wire [7:0]  sobel_bin;		//二值化边缘(与模式无关, 彩色叠加用)
 Sobeledge_8d_proc #(
 	.WIDTH(1280),
 	.HEIGHT(720),
@@ -990,7 +991,8 @@ Sobeledge_8d_proc #(
 	.source_eop  (sobel_eop ),
 	.source_valid(sobel_valid),
 	.source_data (sobel_data),
-	.source_gray (sobel_gray)
+	.source_gray (sobel_gray),
+	.source_bin  (sobel_bin )
 );
 	reg			r_XYCrop_frame_vsync = 0; 
 	reg			r_XYCrop_frame_href = 0;
@@ -1025,6 +1027,27 @@ Sobeledge_8d_proc #(
 
 	////////////////////////////////////////////////////////////////
 	//	DDR R/W Control
+	//	彩色延迟线: RGB565 需要延迟 rgb2gray的7拍 + median+Sobel的(2*WIDTH-1)拍 = 2566 个像素,
+	//	才能和边缘结果在同一时刻打包进 DDR。这里用块RAM做环形延迟线, 不占移位寄存器资源。
+	//	实测: rgb2gray 7 拍; Sobel 单独 1279 拍; 再串一级中值滤波加 1280 拍
+	//	所以 MEDIAN_EN=1 时共 2566, =0 时共 1286
+	localparam RGB_DLY = 7 + (MEDIAN_EN ? (2*1280 - 1) : (1280 - 1));
+	reg  [15:0] rgb_line [0:4095];
+	reg  [11:0] rgb_wptr  = 12'd0;
+	reg  [11:0] rgb_raddr = 12'd0;
+	reg  [15:0] rgb_dly   = 16'd0;
+	always @(posedge w_cmos_pclk) begin
+		if(valid_w0) begin
+			rgb_line[rgb_wptr] <= data_w0;
+			rgb_wptr  <= rgb_wptr + 1'b1;
+			rgb_raddr <= rgb_wptr - (RGB_DLY - 1);	// 读地址滞后1拍 + 读数据再滞后1拍 = RGB_DLY
+		end
+		rgb_dly <= rgb_line[rgb_raddr];		// 同步读: 块RAM推断的标准写法, 行为确定
+	end
+	//	整帧统一打包(一个像素16bit): {RGB555, 二值边缘标志}
+	//	显示端再用 lcd_xpos 决定左半屏画彩色+红边、右半屏画二值边缘
+	//	(不在写侧用列计数器分流, 避免计数器与真实列号对不齐导致画面被切成竖条)
+	wire [15:0] wframe_pack = {rgb_dly[15:11], rgb_dly[10:6], rgb_dly[4:0], sobel_bin[7]};
 	
 
 	wire                            lcd_de;
@@ -1043,7 +1066,8 @@ Sobeledge_8d_proc #(
 	wire 			w_wframe_vsync; 
 	wire 	[7:0] 	w_axi_tp; 
 	
-	//	Write in 8 bits. Read in 16 bits. 
+	//	注意: axi4_ctrl 的读FIFO只支持 8/16bit(C_R_WIDTH=32 时没有对应分支, rframe_data会悬空),
+	//	所以仍用 16bit 字宽, 靠"按列打包"把彩色和边缘都塞进一个像素字里
 	axi4_ctrl #(.C_RD_END_ADDR(1280 * 2 * 720), .C_W_WIDTH(16), .C_R_WIDTH(16), .C_ID_LEN(4)) u_axi4_ctrl (
 
 		.axi_clk        (w_ddr3_ui_clk            ),
@@ -1080,8 +1104,8 @@ Sobeledge_8d_proc #(
 		.wframe_pclk    (w_cmos_pclk          ),
 		.wframe_vsync   (!cmos_frame_vsync     ),//Writter VSync. Flush on rising edge. Connect to EOF. 
 		.wframe_data_en (sobel_valid             ),//(cmos_frame_href   ),
-		//分屏显示: 一个像素存16bit = {原图灰度, 边缘结果}, 读回后按屏幕左右半区选择
-		.wframe_data    ({sobel_gray,sobel_data} ),//(cmos_frame_Gray),
+		//彩色叠加+分屏: 参见上面 wframe_pack 的说明
+		.wframe_data    (wframe_pack),
 		
 		.rframe_pclk    (clk_pixel            ),
 		.rframe_vsync   (~lcd_vs             ),		//	Reader VSync. Flush on rising edge. Connect to ~EOF. 
@@ -1098,13 +1122,21 @@ Sobeledge_8d_proc #(
 	////////////////////////////////////////////////////////////////
 	//  LCD Timing Driver
 	wire 	[15:0] 	w_lcd_data_swap = {lcd_data[7:0], lcd_data[15:8]}; 
-	//	分屏显示: 左半屏(x<640)显示原始灰度, 右半屏显示边缘检测结果
-	//	DDR里一个像素16bit: 高8位=原图灰度sobel_gray, 低8位=边缘结果sobel_data
+	//	分屏显示: 左半屏(x<640) = 原始彩色图 + 红色边缘叠加; 右半屏 = 边缘检测结果
+	//	DDR里一个像素16bit(按列打包): 左半屏 [15:11]=R5 [10:6]=G5 [5:1]=B5 [0]=二值边缘
+	//	                              右半屏 [15:8]=原图灰度 [7:0]=边缘结果
 	wire 	[11:0] 	lcd_xpos; 
-	wire 	[7:0] 	lcd_disp = (lcd_xpos < 12'd640) ? lcd_data[15:8] : lcd_data[7:0]; 
-	wire 	[7:0] 	lcd_data_r = lcd_disp; 
-	wire 	[7:0] 	lcd_data_g = lcd_disp; 
-	wire 	[7:0] 	lcd_data_b = lcd_disp; 
+	//	左半屏: RGB555 按高位复制扩展成 RGB888, 边缘标志置1的像素画成红色
+	wire 	[23:0] 	lcd_rgb888 = {lcd_data[15:11], lcd_data[13:11],	// R5 -> R8
+	                              lcd_data[10:6],  lcd_data[8:6],	// G5 -> G8
+	                              lcd_data[5:1],   lcd_data[3:1]};	// B5 -> B8
+	wire 	[23:0] 	lcd_left  = lcd_data[0] ? 24'hFF0000 : lcd_rgb888;
+	//	右半屏: 二值边缘图(白=边缘, 黑=背景)
+	wire 	[23:0] 	lcd_right = lcd_data[0] ? 24'hFFFFFF : 24'h000000;
+	wire 	[23:0] 	lcd_pixel = (lcd_xpos < 12'd640) ? lcd_left : lcd_right;
+	wire 	[7:0] 	lcd_data_r = lcd_pixel[23:16]; 
+	wire 	[7:0] 	lcd_data_g = lcd_pixel[15:8]; 
+	wire 	[7:0] 	lcd_data_b = lcd_pixel[7:0]; 
 	
 	lcd_driver u_lcd_driver
 	(
