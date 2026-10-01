@@ -904,6 +904,31 @@ vip_rgb2gray_proc #(.BPS(8)) u_vip_rgb2gray_proc (
 	.source_eop  (gray_eop  )
 );
 //Sobel边缘检测：灰度8bit -> 边缘强度/二值边缘/原图
+//3x3中值滤波：灰度 -> 去噪后灰度 (高阶挑战1), 插在灰度化之后、Sobel之前
+localparam MEDIAN_EN = 1'b1;		//1=启用中值滤波  0=旁路(保留原始灰度直通)
+wire        med_sop, med_valid, med_eop;
+wire [7:0]  med_data;
+median_3x3 #(
+	.WIDTH(1280),
+	.HEIGHT(720)
+) u_median_3x3 (
+	.clk         (w_cmos_pclk),
+	.rst_n       (rstn_sys  ),
+	.sink_sop    (gray_sop  ),
+	.sink_eop    (gray_eop  ),
+	.sink_valid  (gray_valid),
+	.sink_data   (gray_data ),
+	.source_sop  (med_sop   ),
+	.source_eop  (med_eop   ),
+	.source_valid(med_valid ),
+	.source_data (med_data  )
+);
+//	Sobel 输入: 默认用中值滤波后的数据; MEDIAN_EN=0 时直通原始灰度(方便做对比实验)
+wire        sobel_in_sop   = MEDIAN_EN ? med_sop   : gray_sop;
+wire        sobel_in_eop   = MEDIAN_EN ? med_eop   : gray_eop;
+wire        sobel_in_valid = MEDIAN_EN ? med_valid : gray_valid;
+wire [7:0]  sobel_in_data  = MEDIAN_EN ? med_data  : gray_data;
+//Sobel边缘检测：灰度8bit -> 边缘强度/二值边缘/原图
 //	显示模式: 0=原图直通 1=边缘强度 2=二值化边缘(默认)
 //	阈值: 0~2040 (|Gx|+|Gy| 最大 2040), 默认 256, 步长 8
 //	SOBEL_MODE_4DIR: 0=|Gx|+|Gy|(赛题要求) 1=四方向取最大(旧方案,可选)
@@ -957,10 +982,10 @@ Sobeledge_8d_proc #(
 	.rst_n       (rstn_sys  ),
 	.mode        (sobel_mode_pclk ),	//显示模式(按键控制)
 	.threshold   (sobel_thr_pclk  ),	//二值化阈值(按键控制)
-	.sink_sop    (gray_sop  ),
-	.sink_eop    (gray_eop  ),
-	.sink_valid  (gray_valid),
-	.sink_data   (gray_data ),
+	.sink_sop    (sobel_in_sop  ),
+	.sink_eop    (sobel_in_eop  ),
+	.sink_valid  (sobel_in_valid),
+	.sink_data   (sobel_in_data ),
 	.source_sop  (sobel_sop ),
 	.source_eop  (sobel_eop ),
 	.source_valid(sobel_valid),
