@@ -59,13 +59,14 @@ decode #(
 // Sobel边缘检测实现模块
 Sobeledge_8d_proc #(
 .WIDTH(WIDTH),     
-.HEIGHT(HEIGHT)
+.HEIGHT(HEIGHT),
+.SOBEL_MODE_4DIR(1'b0)
 )Sobeledge_proc_0
 (
     .clk(clk),
     .rst_n(rst_n),
-	 .edge_en(edge_en),//边缘检测使能，高有效
-	 .bin_en(bin_en),//二值化使能，高有效
+	 .mode(edge_en?(bin_en?2'd2:2'd1):2'd0),//edge_en/bin_en 映射到 mode: 原图/强度/二值
+	 .threshold(11'd256),//本包装模块暂用固定阈值
     .sink_sop(sink_sop),
     .sink_valid(sink_valid),
     .sink_data(sink_data),				

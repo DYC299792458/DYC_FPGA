@@ -36,7 +36,7 @@ always@(posedge clk or negedge rst_n)begin
 end
 // 缓存两行，与当前输入行构成三行输出
 extract_region_c_shiftram_xtap #(
-	.DISTANCE(1280),	// 抽头间间距
+	.DISTANCE(WIDTH),	// 抽头间间距 = 图像宽度(原来硬编码1280, 改成参数以便复用小尺寸仿真)
 	.DWIDTH(8),			// 数据位宽
 	.TAPS_NUM(2)		// 抽头数
 )u_linebuffers(

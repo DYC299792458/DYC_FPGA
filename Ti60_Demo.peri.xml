@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<efxpt:design_db name="Ti60_Demo" device_def="Ti60F225" version="2024.2.294.4.15" db_version="20242999" last_change_date="Mon Aug 31 14:40:30 2026" xmlns:efxpt="http://www.efinixinc.com/peri_design_db" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/peri_design_db peri_design_db.xsd ">
+<efxpt:design_db name="Ti60_Demo" device_def="Ti60F225" version="2025.1.110.5.9" db_version="20252006" last_change_date="Sat Sep 19 16:59:37 2026" xmlns:efxpt="http://www.efinixinc.com/peri_design_db" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.efinixinc.com/peri_design_db peri_design_db.xsd ">
     <efxpt:device_info>
         <efxpt:iobank_info>
             <efxpt:iobank name="1A" iostd="1.8 V LVCMOS" is_dyn_voltage="false" mode_sel_name="1A_MODE_SEL"/>
@@ -577,16 +577,16 @@
                 <efxpt:pin name="" type_name="SHIFT" is_bus="true"/>
                 <efxpt:pin name="" type_name="SHIFT_SEL" is_bus="true"/>
             </efxpt:gen_pin>
-            <efxpt:comp_output_clock name="clk_sys" number="0" out_divider="31" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_sys" number="0" out_divider="31" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="clk_pixel" number="1" out_divider="40" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_pixel" number="1" out_divider="40" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="clk_pixel_2x" number="2" out_divider="20" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_pixel_2x" number="2" out_divider="20" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="clk_pixel_10x" number="3" out_divider="4" is_dyn_phase="false" phase_setting="2" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_pixel_10x" number="3" out_divider="4" is_dyn_phase="false" phase_setting="2" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
             <efxpt:comp_prop/>
@@ -599,16 +599,16 @@
                 <efxpt:pin name="shift" type_name="SHIFT" is_bus="false"/>
                 <efxpt:pin name="shift_sel" type_name="SHIFT_SEL" is_bus="false"/>
             </efxpt:gen_pin>
-            <efxpt:comp_output_clock name="tdqss_clk" number="0" out_divider="8" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="tdqss_clk" number="0" out_divider="8" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="core_clk" number="1" out_divider="16" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="core_clk" number="1" out_divider="16" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="tac_clk" number="2" out_divider="8" is_dyn_phase="true" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="tac_clk" number="2" out_divider="8" is_dyn_phase="true" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="twd_clk" number="3" out_divider="8" is_dyn_phase="false" phase_setting="4" is_inverted="false">
+            <efxpt:comp_output_clock name="twd_clk" number="3" out_divider="8" is_dyn_phase="false" phase_setting="4" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
             <efxpt:comp_prop/>
@@ -621,16 +621,16 @@
                 <efxpt:pin name="" type_name="SHIFT" is_bus="true"/>
                 <efxpt:pin name="" type_name="SHIFT_SEL" is_bus="true"/>
             </efxpt:gen_pin>
-            <efxpt:comp_output_clock name="dsi_refclk_i" number="0" out_divider="28" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="dsi_refclk_i" number="0" out_divider="28" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="dsi_byteclk_i" number="1" out_divider="32" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="dsi_byteclk_i" number="1" out_divider="32" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="dsi_txcclk_i" number="2" out_divider="8" is_dyn_phase="false" phase_setting="6" is_inverted="false">
+            <efxpt:comp_output_clock name="dsi_txcclk_i" number="2" out_divider="8" is_dyn_phase="false" phase_setting="6" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="dsi_serclk_i" number="3" out_divider="8" is_dyn_phase="false" phase_setting="2" is_inverted="false">
+            <efxpt:comp_output_clock name="dsi_serclk_i" number="3" out_divider="8" is_dyn_phase="false" phase_setting="2" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
             <efxpt:comp_prop/>
@@ -643,16 +643,16 @@
                 <efxpt:pin name="" type_name="SHIFT" is_bus="true"/>
                 <efxpt:pin name="" type_name="SHIFT_SEL" is_bus="true"/>
             </efxpt:gen_pin>
-            <efxpt:comp_output_clock name="clk_lvds_1x" number="0" out_divider="28" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_lvds_1x" number="0" out_divider="28" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="clk_lvds_7x" number="1" out_divider="4" is_dyn_phase="false" phase_setting="2" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_lvds_7x" number="1" out_divider="4" is_dyn_phase="false" phase_setting="2" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="clk_27m" number="2" out_divider="84" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_27m" number="2" out_divider="84" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
-            <efxpt:comp_output_clock name="clk_54m" number="3" out_divider="42" is_dyn_phase="false" phase_setting="0" is_inverted="false">
+            <efxpt:comp_output_clock name="clk_54m" number="3" out_divider="42" is_dyn_phase="false" phase_setting="0" is_inverted="false" conn_type="gclk">
                 <efxpt:gen_pin/>
             </efxpt:comp_output_clock>
             <efxpt:comp_prop/>

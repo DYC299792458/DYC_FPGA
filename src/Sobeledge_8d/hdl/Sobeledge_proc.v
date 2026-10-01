@@ -1,13 +1,16 @@
 // 实现8位灰度图像数据的Sobel边缘检测
 // WIDTH、HEIGHT为图像参数
+// SOBEL_MODE_4DIR: 0 = G = |Gx| + |Gy|   (赛题要求, 默认)
+//                  1 = G = max(|Gx|,|Gy|,|G45|,|G135|) (旧方案, 可选保留)
 module Sobeledge_8d_proc#(
 parameter WIDTH=480,
-parameter HEIGHT=320
+parameter HEIGHT=320,
+parameter SOBEL_MODE_4DIR = 0
 )(
 	input			    clk,
 	input			    rst_n,
-	input           edge_en,//边缘检测使能，高有效
-	input           bin_en,//二值化使能，高有效
+	input      [1:0]  mode,			//输出模式: 0=原图直通 1=边缘强度 2=二值化边缘
+	input      [10:0] threshold,	//二值化阈值, 范围 0~2040 (|Gx|+|Gy| 最大 2040)
 	//sink 
 	input           sink_sop,
 	input           sink_eop,
@@ -128,9 +131,14 @@ begin
 	end	
 end
 // Step 2 找最大的G
+// 注: G0 分支 = |(p11+2p12+p13)-(p31+2p32+p33)| = |Gy|  垂直方向梯度
+//     G90分支 = |(p13+2p23+p33)-(p11+2p21+p31)| = |Gx|  水平方向梯度
+// 赛题要求(默认): G = |Gx| + |Gy|, 最大 2040, 所以用 11bit
+// 可选(SOBEL_MODE_4DIR=1): G = max(|Gx|,|Gy|,|G45|,|G135|) 保留原四方向方案
+wire [10:0] Gsum = {1'b0,G90} + {1'b0,G0};
 // Gmax = max(G0,G45,G90,G135)
 reg [9:0] Gmax_0_45,Gmax_90_135;
-reg [9:0] Gmax;//边缘强度
+reg [10:0] Gedge;//边缘强度, 第4级寄存, 与 matrix_p22_dly 对齐
 always@(posedge clk or negedge rst_n)
 begin
 if(!rst_n)
@@ -147,13 +155,17 @@ end
 always@(posedge clk or negedge rst_n)
 begin
 if(!rst_n)
-	Gmax <= 'd0;
+	Gedge <= 'd0;
 else
-	Gmax <= (Gmax_0_45 >= Gmax_90_135)?Gmax_0_45:Gmax_90_135;
+	Gedge <= (SOBEL_MODE_4DIR != 0) ? ((Gmax_0_45 >= Gmax_90_135)?{1'b0,Gmax_0_45}:{1'b0,Gmax_90_135}) : Gsum;
 end
-// Step 3 二值化、边缘强度、原始图选择
-// 输入数据是中值滤波后的图像，所以根据论文中的算法，二值化只需要让边缘强度Gmax和本模块输入的数据中心点matrix_p22比较
-assign 	source_data= edge_en?(bin_en?((Gmax[9:0] >= matrix_p22_dly)?8'hff:8'h0):((Gmax[9:0] > 10'd510)?8'hff:Gmax[8:1])):matrix_p22_dly;
+// Step 3 输出选择: 原图 / 边缘强度 / 二值化边缘
+// mode=1: 边缘强度 = Gedge/8 (2040>>3 = 255, 刚好铺满 8bit)
+// mode=2: 二值化边缘, Gedge >= threshold 输出 255, 否则 0 (阈值 0~2040 可配置)
+// mode=0: 原图直通(matrix_p22_dly 与 Gedge 同延迟)
+assign 	source_data = (mode==2'd1) ? Gedge[10:3] :
+                       (mode==2'd2) ? ((Gedge >= threshold)?8'hff:8'h00) :
+                                      matrix_p22_dly;
 shift_regs#(
 .DWIDTH(3),     
 .DELAY_DUTY(4)

@@ -897,17 +897,24 @@ vip_rgb2gray_proc #(.BPS(8)) u_vip_rgb2gray_proc (
 	.source_data (gray_data ),
 	.source_eop  (gray_eop  )
 );
-//Sobel边缘检测：灰度8bit -> 边缘强度8bit
+//Sobel边缘检测：灰度8bit -> 边缘强度/二值边缘/原图
+//	SOBEL_MODE_DEFAULT: 0=原图直通 1=边缘强度 2=二值化边缘(赛题要求)
+//	SOBEL_THR_DEFAULT : 二值化阈值 0~2040 (|Gx|+|Gy| 最大 2040)
+//	SOBEL_MODE_4DIR   : 0=|Gx|+|Gy|(赛题要求) 1=四方向取最大(旧方案,可选)
+//	下一步: mode/threshold 改由 K1/K2/K3 按键实时控制
+localparam [1:0]  SOBEL_MODE_DEFAULT = 2'd2;
+localparam [10:0] SOBEL_THR_DEFAULT  = 11'd256;
 wire        sobel_sop, sobel_valid, sobel_eop;
 wire [7:0]  sobel_data;
 Sobeledge_8d_proc #(
 	.WIDTH(1280),
-	.HEIGHT(720)
+	.HEIGHT(720),
+	.SOBEL_MODE_4DIR(1'b0)
 ) u_Sobeledge_8d_proc (
 	.clk         (w_cmos_pclk),
 	.rst_n       (rstn_sys  ),
-	.edge_en     (1'b1      ),	//边缘检测使能，高有效
-	.bin_en      (1'b0      ),	//二值化使能，高有效（0:输出边缘强度）
+	.mode        (SOBEL_MODE_DEFAULT),	//显示模式
+	.threshold   (SOBEL_THR_DEFAULT ),	//二值化阈值
 	.sink_sop    (gray_sop  ),
 	.sink_eop    (gray_eop  ),
 	.sink_valid  (gray_valid),
