@@ -66,9 +66,13 @@ Sobeledge_8d_proc #(.WIDTH(WIDTH),.HEIGHT(HEIGHT),.SOBEL_MODE_4DIR(1)) dut_4d (
 integer    chk_on = 0;
 integer    o_cnt  = 0;				// 本帧有效输出像素数
 integer    o_col  = 0;
+integer    o_row  = 0;
+integer    sop_cnt = 0;				// 本帧 sop 次数
+integer    eop_cnt = 0;				// 本帧 eop 次数
 integer    dbg_n  = 0;				// 调试打印计数
 integer    i;
 reg [15:0] col_white [0:WIDTH-1];	// 二值: 每列白点数
+reg [15:0] row_white [0:HEIGHT-1];	// 二值: 每行白点数
 reg [7:0]  col_max   [0:WIDTH-1];	// 强度: 每列最大值
 reg [7:0]  col_max4d [0:WIDTH-1];	// 强度(四方向): 每列最大值
 reg [7:0]  col_raw   [0:WIDTH-1];	// 原图: 每列采样值
@@ -76,22 +80,32 @@ reg [7:0]  col_raw   [0:WIDTH-1];	// 原图: 每列采样值
 task clr_stats;
 begin
 	o_cnt = 0;
+	sop_cnt = 0;
+	eop_cnt = 0;
 	for(i=0;i<WIDTH;i=i+1) begin
 		col_white[i] = 16'd0;
 		col_max[i]   = 8'h00;
 		col_max4d[i] = 8'h00;
 		col_raw[i]   = 8'h00;
 	end
+	for(i=0;i<HEIGHT;i=i+1)
+		row_white[i] = 16'd0;
 end
 endtask
 
 always @(posedge clk) begin
 	if(rst_n && chk_on && v_sum) begin
 		o_col = o_cnt % WIDTH;
+		o_row = o_cnt / WIDTH;
 		col_raw[o_col] = d_sum;
 		if(d_sum > col_max[o_col])   col_max[o_col]   <= d_sum;
 		if(d_4d  > col_max4d[o_col]) col_max4d[o_col] <= d_4d;
-		if(d_sum == 8'hff) col_white[o_col] <= col_white[o_col] + 1'b1;
+		if(d_sum == 8'hff) begin
+			col_white[o_col] <= col_white[o_col] + 1'b1;
+			row_white[o_row] <= row_white[o_row] + 1'b1;
+		end
+		if(sop_sum) sop_cnt <= sop_cnt + 1;
+		if(eop_sum) eop_cnt <= eop_cnt + 1;
 		if(dbg_n > 0) begin
 			$display("      dbg: k=%0d col=%0d din=%02h d_sum=%02h d_4d=%02h", o_cnt, o_col, din, d_sum, d_4d);
 			dbg_n = dbg_n - 1;
@@ -143,7 +157,7 @@ end
 endtask
 
 //---------------- 主流程 ----------------
-integer c, nwhite, ncol, maxv, max4d, frame_pix;
+integer c, nwhite, ncol, maxv, max4d, frame_pix, maxrow;
 
 initial begin
 	$display("=========================================================");
@@ -213,6 +227,16 @@ initial begin
 	ncol = 0;
 	for(c=2;c<=12;c=c+1) if(col_white[c] != 0) ncol = ncol + 1;
 	chk(ncol == 2, "thr=256 : exactly 2 columns white");
+	// 帧首两行的行缓存还没填满, 检查顶部不会出现"整行变白"的假边缘
+	maxrow = 0;
+	for(c=0;c<HEIGHT;c=c+1) if(row_white[c] > maxrow) maxrow = row_white[c];
+	// 行末回绕会让窗口左列接到上一行末尾, 造成最左侧一条竖白边, 边界钳位后应消失
+	nwhite = 0;
+	for(c=0;c<HEIGHT;c=c+1) nwhite = nwhite + row_white[c];
+	$display("   max white per row = %0d, total white = %0d, col0 = %0d, col15 = %0d",
+	         maxrow, nwhite, col_white[0], col_white[WIDTH-1]);
+	chk(maxrow <= 6,   "no full-row false edge on the first rows");
+	chk(nwhite == 2*HEIGHT, "left/right border false edge removed");
 
 	//--------------- T5 阈值 448 (边界, >= 应出白) --------------
 	$display("");
@@ -257,12 +281,16 @@ initial begin
 	$display("   sum mode max=0x%h (expect 0x54), 4div mode max=0x%h (expect 0x38)", maxv, max4d);
 	chk(maxv > max4d, "SOBEL_MODE_4DIR really switches the algorithm");
 	chk(maxv == EXP_DIAG_SUM, "sum mode diagonal magnitude correct (672>>3=0x54)");
+	frame_pix = o_cnt;					//末帧统计: 用于T8
+	maxrow    = sop_cnt;
 
 	//--------------- T8 每帧像素数 --------------
 	$display("");
-	$display("[T8] valid pixels per frame");
-	$display("   output %0d pixels, input frame %0d pixels", frame_pix, WIDTH*HEIGHT);
-	$display("   (NOTE: current version drops the first line - known issue, fixed in step 3)");
+	$display("[T8] valid pixels / sop / eop per frame");
+	$display("   output %0d pixels, input frame %0d pixels, sop=%0d eop=%0d", frame_pix, WIDTH*HEIGHT, maxrow, eop_cnt);
+	chk(frame_pix == WIDTH*HEIGHT, "valid pixels per frame == WIDTH*HEIGHT");
+	chk(maxrow == 1, "exactly one sop per frame");
+	chk(eop_cnt == 1, "exactly one eop per frame");
 
 	//--------------- 总结 --------------
 	$display("");
