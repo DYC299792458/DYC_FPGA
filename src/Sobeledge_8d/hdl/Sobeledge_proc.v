@@ -20,7 +20,8 @@ parameter SOBEL_MODE_4DIR = 0
 	output          source_sop,
 	output          source_eop,
 	output          source_valid,
-	output  [7:0]   source_data			//Sobel边缘检测结果
+	output  [7:0]   source_data,		//Sobel边缘检测结果
+	output  [7:0]   source_gray			//与 source_data 同延迟的原图灰度(供分屏显示用)
 );
 
 // 3x3像素矩阵
@@ -166,6 +167,8 @@ end
 assign 	source_data = (mode==2'd1) ? Gedge[10:3] :
                        (mode==2'd2) ? ((Gedge >= threshold)?8'hff:8'h00) :
                                       matrix_p22_dly;
+// 分屏显示用: 输出与 source_data 同延迟、逐像素对齐的灰度原图
+assign 	source_gray = matrix_p22_dly;
 shift_regs#(
 .DWIDTH(3),     
 .DELAY_DUTY(4)

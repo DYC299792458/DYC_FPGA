@@ -947,6 +947,7 @@ always@(posedge w_cmos_pclk or negedge rstn_sys)
 	end
 wire        sobel_sop, sobel_valid, sobel_eop;
 wire [7:0]  sobel_data;
+wire [7:0]  sobel_gray;		//与sobel_data同延迟的原图灰度(分屏显示用)
 Sobeledge_8d_proc #(
 	.WIDTH(1280),
 	.HEIGHT(720),
@@ -963,7 +964,8 @@ Sobeledge_8d_proc #(
 	.source_sop  (sobel_sop ),
 	.source_eop  (sobel_eop ),
 	.source_valid(sobel_valid),
-	.source_data (sobel_data)
+	.source_data (sobel_data),
+	.source_gray (sobel_gray)
 );
 	reg			r_XYCrop_frame_vsync = 0; 
 	reg			r_XYCrop_frame_href = 0;
@@ -1053,7 +1055,8 @@ Sobeledge_8d_proc #(
 		.wframe_pclk    (w_cmos_pclk          ),
 		.wframe_vsync   (!cmos_frame_vsync     ),//Writter VSync. Flush on rising edge. Connect to EOF. 
 		.wframe_data_en (sobel_valid             ),//(cmos_frame_href   ),
-		.wframe_data    (sobel_data              ),//(cmos_frame_Gray),
+		//分屏显示: 一个像素存16bit = {原图灰度, 边缘结果}, 读回后按屏幕左右半区选择
+		.wframe_data    ({sobel_gray,sobel_data} ),//(cmos_frame_Gray),
 		
 		.rframe_pclk    (clk_pixel            ),
 		.rframe_vsync   (~lcd_vs             ),		//	Reader VSync. Flush on rising edge. Connect to ~EOF. 
@@ -1070,9 +1073,13 @@ Sobeledge_8d_proc #(
 	////////////////////////////////////////////////////////////////
 	//  LCD Timing Driver
 	wire 	[15:0] 	w_lcd_data_swap = {lcd_data[7:0], lcd_data[15:8]}; 
-	wire 	[7:0] 	lcd_data_r = lcd_data[7:0];//{lcd_data[15:11], 3'b0}; 
-	wire 	[7:0] 	lcd_data_g = lcd_data[7:0];//{lcd_data[10:5], 2'b0}; 
-	wire 	[7:0] 	lcd_data_b = lcd_data[7:0];//{lcd_data[4:0], 3'b0}; 
+	//	分屏显示: 左半屏(x<640)显示原始灰度, 右半屏显示边缘检测结果
+	//	DDR里一个像素16bit: 高8位=原图灰度sobel_gray, 低8位=边缘结果sobel_data
+	wire 	[11:0] 	lcd_xpos; 
+	wire 	[7:0] 	lcd_disp = (lcd_xpos < 12'd640) ? lcd_data[15:8] : lcd_data[7:0]; 
+	wire 	[7:0] 	lcd_data_r = lcd_disp; 
+	wire 	[7:0] 	lcd_data_g = lcd_disp; 
+	wire 	[7:0] 	lcd_data_b = lcd_disp; 
 	
 	lcd_driver u_lcd_driver
 	(
@@ -1089,6 +1096,7 @@ Sobeledge_8d_proc #(
 	    .lcd_vs     (lcd_vs         ),
 	    .lcd_en     (lcd_de         ),
 	    .lcd_rgb    ({lcd_red2,lcd_green2,lcd_blue2, lcd_red,lcd_green,lcd_blue}),
+	    .lcd_xpos   (lcd_xpos),	//	用于分屏判断左右半屏
 	    
 	    //  user interface
 	    .lcd_data   ({lcd_data_r, lcd_data_g, lcd_data_b}  )

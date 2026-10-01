@@ -22,6 +22,7 @@ parameter	HEIGHT=320
 
 wire [7:0]	row1_data,row2_data;
 wire  matrix_en;
+wire  matrix_sop_win;	//窗口侧的帧起始标志(sink_sop延迟1拍)
 reg	[7:0]	row3_data;
 always@(posedge clk or negedge rst_n)begin
 	if(!rst_n)begin
@@ -47,19 +48,30 @@ extract_region_c_shiftram_xtap #(
 	.taps({row1_data,row2_data})
 );
 
-// sink_sop/sink_eop/sink_valid 延迟一个clk, 得到与3x3窗口对齐的
-// matrix_sop/matrix_eop/matrix_en
+// sink_valid 延迟1拍: 与3x3窗口的移位节拍对齐(内部使用)
+// sink_sop  延迟1拍: 窗口侧的帧起始标志(给填充计数/列计数用)
 // 注意: 输入是"帧级纯像素流"(只有整帧首尾有sop/eop, 中间没有行标记),
 //       所以不能用自由计数器去数行, 直接透传帧标记最稳, 保证每帧输出
 //       像素数严格等于输入的 WIDTH*HEIGHT, 不会丢帧首的一行。
 shift_regs#(
-.DWIDTH(3),     
+.DWIDTH(2),     
 .DELAY_DUTY(1)
 )u2_shift_regs(
     .clk(clk),
 	.rst_n(rst_n),
+	.idata({sink_sop,sink_valid}),
+	.odata({matrix_sop_win,matrix_en})
+);
+// 输出帧标记: 比窗口再多延迟2拍。数据通路本身有"窗口2拍 + Sobel 4拍"的延迟,
+// 这样输出帧的第一个像素才正好对应输入帧的第一个像素(否则整幅图会被左移2像素)
+shift_regs#(
+.DWIDTH(3),     
+.DELAY_DUTY(3)
+)u3_shift_regs(
+    .clk(clk),
+	.rst_n(rst_n),
 	.idata({sink_sop,sink_eop,sink_valid}),
-	.odata({matrix_sop,matrix_eop,matrix_en})
+	.odata({matrix_sop,matrix_eop,matrix_valid})
 );
 // 帧首前2行: 行缓存的"上一行/上两行"抽头还没填满, 用当前行数据顶替,
 // 否则顶部会出现一条横贯全屏的假边缘。fill_cnt 每帧清0, 数满 2*WIDTH 后停住。
@@ -67,7 +79,7 @@ reg [12:0] fill_cnt;
 always@(posedge clk or negedge rst_n)begin
 	if(!rst_n)
 		fill_cnt<=13'd0;
-	else if(matrix_sop)
+	else if(matrix_sop_win)
 		fill_cnt<=13'd0;
 	else if(matrix_en && (fill_cnt<2*WIDTH))
 		fill_cnt<=fill_cnt+1'b1;
@@ -82,7 +94,7 @@ reg [11:0] xcol;
 always@(posedge clk or negedge rst_n)begin
 	if(!rst_n)
 		xcol<=12'd0;
-	else if(matrix_sop)
+	else if(matrix_sop_win)
 		xcol<=12'd0;
 	else if(matrix_en)
 		xcol<=(xcol>=WIDTH-1)?12'd0:xcol+1'b1;
@@ -119,8 +131,6 @@ assign matrix_p31 = (xcol==12'd0) ? m33 : ((xcol==12'd1) ? m32 : m31);
 assign matrix_p32 = (xcol==12'd0) ? m33 : m32;
 assign matrix_p33 = m33;
 
-// 每个有效输入像素都输出一个结果(不丢帧首一行), matrix_sop/eop 由帧标记透传得到
-assign matrix_valid = matrix_en;
 
 
 endmodule

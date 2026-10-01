@@ -47,6 +47,7 @@ reg         vsop = 1'b0;
 reg         veop = 1'b0;
 
 wire [7:0] d_sum, d_4d;
+wire [7:0] g_sum;					//dut_sum 的 source_gray
 wire       v_sum, v_4d;
 wire       sop_sum, eop_sum, sop_4d, eop_4d;
 
@@ -54,7 +55,8 @@ wire       sop_sum, eop_sum, sop_4d, eop_4d;
 Sobeledge_8d_proc #(.WIDTH(WIDTH),.HEIGHT(HEIGHT),.SOBEL_MODE_4DIR(0)) dut_sum (
 	.clk(clk), .rst_n(rst_n), .mode(mode), .threshold(thr),
 	.sink_sop(vsop), .sink_eop(veop), .sink_valid(vin), .sink_data(din),
-	.source_sop(sop_sum), .source_valid(v_sum), .source_data(d_sum), .source_eop(eop_sum)
+	.source_sop(sop_sum), .source_valid(v_sum), .source_data(d_sum), .source_eop(eop_sum),
+	.source_gray(g_sum)
 );
 Sobeledge_8d_proc #(.WIDTH(WIDTH),.HEIGHT(HEIGHT),.SOBEL_MODE_4DIR(1)) dut_4d (
 	.clk(clk), .rst_n(rst_n), .mode(mode), .threshold(thr),
@@ -73,6 +75,7 @@ integer    dbg_n  = 0;				// 调试打印计数
 integer    i;
 reg [15:0] col_white [0:WIDTH-1];	// 二值: 每列白点数
 reg [15:0] row_white [0:HEIGHT-1];	// 二值: 每行白点数
+reg [7:0]  col_gray  [0:WIDTH-1];	// 分屏用灰度输出(应等于同列输入像素)
 reg [7:0]  col_max   [0:WIDTH-1];	// 强度: 每列最大值
 reg [7:0]  col_max4d [0:WIDTH-1];	// 强度(四方向): 每列最大值
 reg [7:0]  col_raw   [0:WIDTH-1];	// 原图: 每列采样值
@@ -87,6 +90,7 @@ begin
 		col_max[i]   = 8'h00;
 		col_max4d[i] = 8'h00;
 		col_raw[i]   = 8'h00;
+		col_gray[i]  = 8'h00;
 	end
 	for(i=0;i<HEIGHT;i=i+1)
 		row_white[i] = 16'd0;
@@ -98,6 +102,7 @@ always @(posedge clk) begin
 		o_col = o_cnt % WIDTH;
 		o_row = o_cnt / WIDTH;
 		col_raw[o_col] = d_sum;
+		col_gray[o_col] = g_sum;
 		if(d_sum > col_max[o_col])   col_max[o_col]   <= d_sum;
 		if(d_4d  > col_max4d[o_col]) col_max4d[o_col] <= d_4d;
 		if(d_sum == 8'hff) begin
@@ -196,6 +201,12 @@ initial begin
 	    "raw passthrough : left 3 columns = 0x10");
 	chk((col_raw[10]==V_BRIGHT) && (col_raw[11]==V_BRIGHT) && (col_raw[12]==V_BRIGHT),
 	    "raw passthrough : right 3 columns = 0x80");
+	// 分屏显示要求: source_gray 必须与 source_data 逐像素对齐, 即同列等于同列的输入像素
+	$display("   col_gray: col0=0x%h col7=0x%h col8=0x%h col15=0x%h",
+	         col_gray[0], col_gray[7], col_gray[8], col_gray[WIDTH-1]);
+	chk((col_gray[0]==V_DARK) && (col_gray[7]==V_DARK) &&
+	    (col_gray[8]==V_BRIGHT) && (col_gray[15]==V_BRIGHT),
+	    "source_gray pixel-aligned with source_data");
 
 	//--------------- T3 垂直边 + 边缘强度 --------------
 	$display("");
