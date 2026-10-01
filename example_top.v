@@ -252,6 +252,12 @@ module example_top
 	
 	
 	////////////////////////////////////////////////////////////////
+	//	User Keys (核心板丝印K1/K2, 低有效, BANK1A 1.8V)
+	input 			key1_n,			//	K1 -> GPIOL_P_02(球N2): 阈值-
+	input 			key2_n,			//	K2 -> GPIOL_N_02(球M2): 阈值+
+	
+	
+	////////////////////////////////////////////////////////////////
 	//	CMOS Sensor
 	output 			cmos_sclk,
 	input 			cmos_sdat_IN,
@@ -338,7 +344,7 @@ module example_top
 	//output 			lcd_pclk_o,			//	PCLK & SCK Mux
 	output 			lcd_vs_o,			//	VS & SSN Mux. Fixed to 1. Use DE-Only mode. 
 	output 			lcd_hs_o,			//	HS. Fixed to 1. Use DE-Only mode. 
-	output 			lcd_de_o,			//	DE. 
+	//output 			lcd_de_o,			//	DE. (引脚GPIOL_P_02已改作key1_n)
 
 	output 	[7:0] 	lcd_b7_0_o,			//	B7:B0. 
 	output 	[7:0] 	lcd_g7_0_o,			//	G7:G0. Must output 8'hFF when access SPI. 
@@ -713,7 +719,7 @@ module example_top
 		r_cmos_rx_vsync0_in <= {r_cmos_rx_vsync0_in, cmos_vsync}; 
 		r_cmos_fv_o <= r_cmos_fv_o + ((r_cmos_rx_vsync0_in == 2'b01) ? 1 : 0); 
 	end
-	assign led_o[5] = r_cmos_fv_o[3]; 
+	//assign led_o[5] = r_cmos_fv_o[3]; 	//原:相机帧计数指示, 现改为显示模式指示
 	
 	
 	
@@ -898,12 +904,47 @@ vip_rgb2gray_proc #(.BPS(8)) u_vip_rgb2gray_proc (
 	.source_eop  (gray_eop  )
 );
 //Sobel边缘检测：灰度8bit -> 边缘强度/二值边缘/原图
-//	SOBEL_MODE_DEFAULT: 0=原图直通 1=边缘强度 2=二值化边缘(赛题要求)
-//	SOBEL_THR_DEFAULT : 二值化阈值 0~2040 (|Gx|+|Gy| 最大 2040)
-//	SOBEL_MODE_4DIR   : 0=|Gx|+|Gy|(赛题要求) 1=四方向取最大(旧方案,可选)
-//	下一步: mode/threshold 改由 K1/K2/K3 按键实时控制
-localparam [1:0]  SOBEL_MODE_DEFAULT = 2'd2;
-localparam [10:0] SOBEL_THR_DEFAULT  = 11'd256;
+//	显示模式: 0=原图直通 1=边缘强度 2=二值化边缘(默认)
+//	阈值: 0~2040 (|Gx|+|Gy| 最大 2040), 默认 256, 步长 8
+//	SOBEL_MODE_4DIR: 0=|Gx|+|Gy|(赛题要求) 1=四方向取最大(旧方案,可选)
+//	按键(核心板丝印K1/K2, 低有效, 1.8V bank1A):
+//	  K1 短按 阈值-8, 按住0.5s后每80ms连减
+//	  K2 短按 阈值+8, 按住0.5s后每80ms连加
+//	  K1+K2 同时按 = 切换显示模式: 原图->强度->二值
+//	sobel_ctrl 在 clk_sys 域, 阈值/模式用 toggle 握手搬到 cmos_pclk 域再给 Sobel 用
+wire [10:0] sobel_thr_sys;		//clk_sys 域当前阈值
+wire [1:0]  sobel_mode_sys;		//clk_sys 域当前显示模式
+wire        sobel_cfg_toggle;	//配置变化标志
+sobel_ctrl u_sobel_ctrl(
+	.clk        (clk_sys        ),
+	.rst_n      (rstn_sys       ),
+	.key1_n     (key1_n         ),
+	.key2_n     (key2_n         ),
+	.threshold  (sobel_thr_sys  ),
+	.mode       (sobel_mode_sys ),
+	.cfg_toggle (sobel_cfg_toggle)
+);
+//	LED 指示: led_o[5:4]=显示模式(0原图/1强度/2二值), led_o[3:0]=阈值档位(threshold[10:7])
+assign led_o[5:4] = sobel_mode_sys;
+assign led_o[3:0] = sobel_thr_sys[10:7];
+//	配置跨时钟域: clk_sys -> cmos_pclk, 检测到 toggle 翻转才锁存(此时数据已稳定)
+reg        cfg_tog_s1,cfg_tog_s2,cfg_tog_s3;
+reg [10:0] sobel_thr_pclk;
+reg [1:0]  sobel_mode_pclk;
+always@(posedge w_cmos_pclk or negedge rstn_sys)
+	if(!rstn_sys)begin
+		cfg_tog_s1<=1'b0; cfg_tog_s2<=1'b0; cfg_tog_s3<=1'b0;
+		sobel_thr_pclk<=11'd256;  sobel_mode_pclk<=2'd2;
+	end
+	else begin
+		cfg_tog_s1<=sobel_cfg_toggle;
+		cfg_tog_s2<=cfg_tog_s1;
+		cfg_tog_s3<=cfg_tog_s2;
+		if(cfg_tog_s2 ^ cfg_tog_s3)begin
+			sobel_thr_pclk <=sobel_thr_sys;
+			sobel_mode_pclk<=sobel_mode_sys;
+		end
+	end
 wire        sobel_sop, sobel_valid, sobel_eop;
 wire [7:0]  sobel_data;
 Sobeledge_8d_proc #(
@@ -913,8 +954,8 @@ Sobeledge_8d_proc #(
 ) u_Sobeledge_8d_proc (
 	.clk         (w_cmos_pclk),
 	.rst_n       (rstn_sys  ),
-	.mode        (SOBEL_MODE_DEFAULT),	//显示模式
-	.threshold   (SOBEL_THR_DEFAULT ),	//二值化阈值
+	.mode        (sobel_mode_pclk ),	//显示模式(按键控制)
+	.threshold   (sobel_thr_pclk  ),	//二值化阈值(按键控制)
 	.sink_sop    (gray_sop  ),
 	.sink_eop    (gray_eop  ),
 	.sink_valid  (gray_valid),
@@ -1021,7 +1062,7 @@ Sobeledge_8d_proc #(
 		
 		.tp_o 		(w_axi_tp)
 	);
-	assign led_o[3:0] = w_axi_tp; 
+	//assign led_o[3:0] = w_axi_tp; 		//原:AXI调试指示, 现改为阈值档位指示
 	
 	
 	
