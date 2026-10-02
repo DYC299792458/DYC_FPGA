@@ -99,6 +99,16 @@ initial begin
 	chk(mode == 2'd2, "default mode = 2 (binary edge)");
 
 	//---- T2 K1 短按 ----
+	//---- T1b 上电自动推送配置 ----
+	// 	复位后即使不按键, cfg_toggle 也应该自动翻转一次(否则目的域会停在旧默认值)
+	begin : pwr
+		reg tog0;
+		tog0 = cfg_toggle;
+		repeat(40) @(posedge clk);
+		$display("   cfg_toggle after reset: %0d -> %0d", tog0, cfg_toggle);
+		chk(cfg_toggle != tog0, "power-on config push happened");
+	end
+
 	$display("");
 	$display("[T2] K1 short press -> threshold -8");
 	t0 = threshold;

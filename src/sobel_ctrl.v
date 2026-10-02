@@ -152,6 +152,13 @@ module sobel_ctrl #(
 //----------------------------------------------------------------------
 // 配置变化标志: 数据变化后延迟3拍再翻转, 保证跨时钟域时数据已稳定
 //----------------------------------------------------------------------
+	//	上电配置推送: 复位释放后自动推一次 {mode,threshold} 到像素时钟域,
+	//	否则目的域会一直停在它自己的复位值上, 改了 THR_DEFAULT 也不会生效
+	reg [4:0] pwr_cnt = 5'd0;
+	always @(posedge clk or negedge rst_n)
+		if(!rst_n)                pwr_cnt <= 5'd0;
+		else if(pwr_cnt < 5'd31)  pwr_cnt <= pwr_cnt + 1'b1;
+
 	reg [10:0] thr_d;
 	reg [1:0]  mode_d;
 	reg        chg,chg1,chg2,chg3;
@@ -163,7 +170,7 @@ module sobel_ctrl #(
 		else begin
 			thr_d <= threshold;
 			mode_d<= mode;
-			chg   <= (thr_d!=threshold) || (mode_d!=mode);
+			chg   <= (thr_d!=threshold) || (mode_d!=mode) || (pwr_cnt==5'd15);
 			chg1  <= chg;
 			chg2  <= chg1;
 			chg3  <= chg2;

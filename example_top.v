@@ -940,7 +940,9 @@ wire [7:0]  sobel_in_data  = MEDIAN_EN ? med_data  : gray_data;
 wire [10:0] sobel_thr_sys;		//clk_sys 域当前阈值
 wire [1:0]  sobel_mode_sys;		//clk_sys 域当前显示模式
 wire        sobel_cfg_toggle;	//配置变化标志
-sobel_ctrl u_sobel_ctrl(
+sobel_ctrl #(
+	.THR_DEFAULT(11'd64)		//上电默认阈值: 现场实测按 24 下 K1 最优 -> 256-24*8=64
+) u_sobel_ctrl(
 	.clk        (clk_sys        ),
 	.rst_n      (rstn_sys       ),
 	.key1_n     (key1_n         ),
@@ -959,6 +961,7 @@ reg [1:0]  sobel_mode_pclk;
 always@(posedge w_cmos_pclk or negedge rstn_sys)
 	if(!rstn_sys)begin
 		cfg_tog_s1<=1'b0; cfg_tog_s2<=1'b0; cfg_tog_s3<=1'b0;
+		//	这里的复位值只是过渡: sobel_ctrl 上电后会立刻推送一次真正的默认值过来
 		sobel_thr_pclk<=11'd256;  sobel_mode_pclk<=2'd2;
 	end
 	else begin
