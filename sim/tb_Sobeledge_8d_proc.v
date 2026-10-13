@@ -206,11 +206,12 @@ initial begin
 	    "raw passthrough : left 3 columns = 0x10");
 	chk((col_raw[10]==V_BRIGHT) && (col_raw[11]==V_BRIGHT) && (col_raw[12]==V_BRIGHT),
 	    "raw passthrough : right 3 columns = 0x80");
-	// 分屏显示要求: source_gray 必须与 source_data 逐像素对齐, 即同列等于同列的输入像素
-	$display("   col_gray: col0=0x%h col7=0x%h col8=0x%h col15=0x%h",
-	         col_gray[0], col_gray[7], col_gray[8], col_gray[WIDTH-1]);
-	chk((col_gray[0]==V_DARK) && (col_gray[7]==V_DARK) &&
-	    (col_gray[8]==V_BRIGHT) && (col_gray[15]==V_BRIGHT),
+	// 分屏显示要求: source_gray 必须与 source_data 逐像素对齐
+	// [dyc] 窗口帧标记修正后, 所有输出(边缘/灰度)统一比输入右移 1 列, 输入第8列的亮边出现在输出第9列
+	$display("   col_gray: col0=0x%h col8=0x%h col9=0x%h col15=0x%h",
+	         col_gray[0], col_gray[8], col_gray[9], col_gray[WIDTH-1]);
+	chk((col_gray[0]==V_DARK) && (col_gray[8]==V_DARK) &&
+	    (col_gray[9]==V_BRIGHT) && (col_gray[15]==V_BRIGHT),
 	    "source_gray pixel-aligned with source_data");
 
 	//--------------- T3 垂直边 + 边缘强度 --------------

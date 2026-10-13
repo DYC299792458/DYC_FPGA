@@ -123,22 +123,23 @@ end
 endtask
 
 //---------------- 内部区域与真中值逐像素比对 ----------------
-// 说明: 3x3 窗口的中心天生比输入流晚 1 行, 输出帧因此相对输入帧整体上移一行,
-//       即 DUT 在 (x,y) 的输出 = 以 (x,y-1) 为中心的 3x3 窗口的中值。
-//       比对范围避开边界钳位: x=2..WIDTH-3, y=2..HEIGHT-2
+// 说明: 3x3 窗口的中心天生比输入流晚 1 行 1 列, 输出帧因此相对输入帧整体平移,
+//       即 DUT 在 (x,y) 的输出 = 以 (x-1,y-1) 为中心的 3x3 窗口的中值。
+//       [dyc] 窗口帧标记修正(与 valid 是否连续无关)后多了 1 列平移, 原来是 (x,y-1)。
+//       比对范围避开边界钳位: x=3..WIDTH-2, y=2..HEIGHT-2
 task check_interior(input [8*56:1] name);
 reg [7:0] exp;
 begin
 	nb = 0;
 	for(y=2;y<=HEIGHT-2;y=y+1)
-		for(x=2;x<WIDTH-2;x=x+1) begin
-			exp = med9(in_img[(y-2)*WIDTH+x-1], in_img[(y-2)*WIDTH+x], in_img[(y-2)*WIDTH+x+1],
-			           in_img[(y-1)*WIDTH+x-1], in_img[(y-1)*WIDTH+x], in_img[(y-1)*WIDTH+x+1],
-			           in_img[ y   *WIDTH+x-1], in_img[ y   *WIDTH+x], in_img[ y   *WIDTH+x+1]);
+		for(x=3;x<=WIDTH-2;x=x+1) begin
+			exp = med9(in_img[(y-2)*WIDTH+x-2], in_img[(y-2)*WIDTH+x-1], in_img[(y-2)*WIDTH+x],
+			           in_img[(y-1)*WIDTH+x-2], in_img[(y-1)*WIDTH+x-1], in_img[(y-1)*WIDTH+x],
+			           in_img[ y   *WIDTH+x-2], in_img[ y   *WIDTH+x-1], in_img[ y   *WIDTH+x]);
 			if(out_img[y*WIDTH+x] !== exp) nb = nb + 1;
 		end
 	$display("   interior checked x%0d..x%0d y2..y%0d, mismatch = %0d",
-	         2, WIDTH-3, HEIGHT-2, nb);
+	         3, WIDTH-2, HEIGHT-2, nb);
 	chk(nb == 0, name);
 end
 endtask
@@ -175,12 +176,12 @@ initial begin
 	begin : noise
 		integer k;
 		k = 0;
-		// 噪点在 (x,y), 结果出现在输出的 (x,y+1) —— 因为窗口中心比输入流晚一行
-		if(out_img[3*WIDTH+3] !== 8'h40) k = k + 1;	// 盐噪点(3,2)
-		if(out_img[6*WIDTH+10] !== 8'h40) k = k + 1;	// 盐噪点(10,5)
-		if(out_img[5*WIDTH+7] !== 8'h40) k = k + 1;	// 椒噪点(7,4)
+		// 噪点在 (x,y), 结果出现在输出的 (x+1,y+1) —— 因为窗口中心比输入流晚一行一列
+		if(out_img[3*WIDTH+4] !== 8'h40) k = k + 1;	// 盐噪点(3,2)
+		if(out_img[6*WIDTH+11] !== 8'h40) k = k + 1;	// 盐噪点(10,5)
+		if(out_img[5*WIDTH+8] !== 8'h40) k = k + 1;	// 椒噪点(7,4)
 		$display("   noise pixel outputs: %0d %0d %0d",
-		         out_img[3*WIDTH+3], out_img[6*WIDTH+10], out_img[5*WIDTH+7]);
+		         out_img[3*WIDTH+4], out_img[6*WIDTH+11], out_img[5*WIDTH+8]);
 		chk(k == 0, "noise pixels become background value");
 	end
 

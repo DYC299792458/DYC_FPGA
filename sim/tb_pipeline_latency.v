@@ -1,11 +1,16 @@
 `timescale 1ns/1ps
 // 探针: 量 median_3x3 -> Sobeledge_8d_proc 的延迟(以像素为单位)
-// 实测: WIDTH=16 时滞后 31 像素, WIDTH=32 时滞后 63 像素  =>  滞后 = 2*WIDTH-1
-//       (WIDTH=1280 时即 2559; 再加上 rgb2gray 自身 7 拍的延迟, RGB 共需延迟 2566 像素)
+// [dyc] 原来用"每行一个常数"的测试图, 只能分辨行, 列方向有 +-1 的模糊(相邻滞后量匹配数几乎打平)。
+//       也不能用逐像素随机图: 中值滤波的输出本来就不等于输入, 只有约 1/9 的像素会碰巧相等, 测出的滞后量是噪声。
+//       现改为 8x8 随机色块图: 块内部及直边处中值 = 中心像素, 只有块角处略有差异,
+//       真实滞后量匹配率约 94%, 错一列只有约 87%, 能唯一区分。
+// 实测(窗口帧标记修正后): 每级 3x3 窗口滞后 WIDTH+1 像素(1行1列), 两级共 2*WIDTH+2
+//       Canny 4 级窗口再加 4*(WIDTH+1), 见 tb_canny_edge 的旁路位对拍
+//       WIDTH=1280: 中值+Sobel 2562, +Canny 5124, +rgb2gray 7 => 顶层 RGB_DLY = 7693
 module tb_pipeline_latency;
 
-localparam WIDTH  = 32;
-localparam HEIGHT = 128;		// 行数足够长, 保证延迟后仍落在帧内
+localparam WIDTH  = 64;
+localparam HEIGHT = 64; 		// 行数足够长, 保证延迟后仍落在帧内
 localparam NPIX   = WIDTH*HEIGHT;
 
 reg clk = 0, rst_n = 0;
@@ -36,6 +41,8 @@ reg [7:0] in_img  [0:NPIX-1];
 reg [7:0] out_img [0:NPIX-1];
 integer   o_cnt = 0;
 integer   i, k;
+reg [7:0] blk [0:(WIDTH/8)*(HEIGHT/8)-1];
+initial for(k=0;k<(WIDTH/8)*(HEIGHT/8);k=k+1) blk[k] = $random;
 
 always @(posedge clk) begin
 	if(rst_n && ve) begin
@@ -51,7 +58,7 @@ initial begin
 	repeat(5) @(posedge clk);
 
 	for(i=0;i<NPIX;i=i+1) begin
-		in_img[i] = i / WIDTH;			// 行号 0..HEIGHT-1
+		in_img[i] = blk[((i/WIDTH)/8)*(WIDTH/8) + (i%WIDTH)/8];	// 8x8 随机色块
 		@(negedge clk);
 		din  = in_img[i];
 		vin  = 1'b1;
@@ -74,6 +81,10 @@ initial begin
 		end
 		$display("  best lag = %0d pixels  ( %0d rows + %0d columns ), matches %0d / %0d",
 		          best_l, best_l/WIDTH, best_l%WIDTH, best_hit, NPIX-best_l);
+		if(best_l == 2*WIDTH+2 && best_hit*100 > 90*(NPIX-best_l))
+			$display("  RESULT: PASS  (lag = 2*WIDTH+2 as designed)");
+		else
+			$display("  RESULT: FAIL  (expect lag %0d)", 2*WIDTH+2);
 	end
 	$finish;
 end
