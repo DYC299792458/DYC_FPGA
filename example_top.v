@@ -929,14 +929,17 @@ wire        sobel_in_eop   = MEDIAN_EN ? med_eop   : gray_eop;
 wire        sobel_in_valid = MEDIAN_EN ? med_valid : gray_valid;
 wire [7:0]  sobel_in_data  = MEDIAN_EN ? med_data  : gray_data;
 //Sobel边缘检测：灰度8bit -> 边缘强度/二值边缘/原图
-//	显示模式: 0=原图直通 1=边缘强度 2=二值化边缘(默认)
-//	阈值: 0~2040 (|Gx|+|Gy| 最大 2040), 默认 256, 步长 8
+//	阈值: 0~2040 (|Gx|+|Gy| 最大 2040), 默认 64, 步长 8
 //	SOBEL_MODE_4DIR: 0=|Gx|+|Gy|(赛题要求) 1=四方向取最大(旧方案,可选)
 //	按键(核心板丝印K1/K2, 低有效, 1.8V bank1A):
 //	  K1 短按 阈值-8, 按住0.5s后每80ms连减
 //	  K2 短按 阈值+8, 按住0.5s后每80ms连加
-//	  K1+K2 同时按 = 切换显示模式: 原图->强度->二值
-//	sobel_ctrl 在 clk_sys 域, 阈值/模式用 toggle 握手搬到 cmos_pclk 域再给 Sobel 用
+//	  K1+K2 同时按 = 切换算法模式, 循环 0 -> 1 -> 2 -> 0, 上电默认 2:
+//	    0 = Sobel 二值边缘
+//	    1 = Canny 边缘                          (高阶挑战4)
+//	    2 = Canny 边缘 + 简易目标识别叠加显示    (高阶挑战4 + 6)
+//	  阈值对两种算法都生效: Sobel 用它二值化; Canny 强阈值 = 阈值, 弱阈值 = 阈值/2
+//	sobel_ctrl 在 clk_sys 域, 阈值/模式用 toggle 握手搬到 cmos_pclk 域再给 Sobel/Canny 用
 wire [10:0] sobel_thr_sys;		//clk_sys 域当前阈值
 wire [1:0]  sobel_mode_sys;		//clk_sys 域当前显示模式
 wire        sobel_cfg_toggle;	//配置变化标志
@@ -951,7 +954,7 @@ sobel_ctrl #(
 	.mode       (sobel_mode_sys ),
 	.cfg_toggle (sobel_cfg_toggle)
 );
-//	LED 指示: led_o[5:4]=显示模式(0原图/1强度/2二值), led_o[3:0]=阈值档位(threshold[10:7])
+//	LED 指示: led_o[5:4]=算法模式(0 Sobel/1 Canny/2 Canny+识别), led_o[3:0]=阈值档位(threshold[10:7])
 assign led_o[5:4] = sobel_mode_sys;
 assign led_o[3:0] = sobel_thr_sys[10:7];
 //	配置跨时钟域: clk_sys -> cmos_pclk, 检测到 toggle 翻转才锁存(此时数据已稳定)
@@ -984,7 +987,7 @@ Sobeledge_8d_proc #(
 ) u_Sobeledge_8d_proc (
 	.clk         (w_cmos_pclk),
 	.rst_n       (rstn_sys  ),
-	.mode        (sobel_mode_pclk ),	//显示模式(按键控制)
+	.mode        (2'd2            ),	//source_data 显示通路已不用(DDR 只存 source_bin), 固定二值
 	.threshold   (sobel_thr_pclk  ),	//二值化阈值(按键控制)
 	.sink_sop    (sobel_in_sop  ),
 	.sink_eop    (sobel_in_eop  ),
@@ -997,6 +1000,49 @@ Sobeledge_8d_proc #(
 	.source_gray (sobel_gray),
 	.source_bin  (sobel_bin )
 );
+
+////////////////////////////////////////////////////////////////
+//	【高阶挑战4】Canny 边缘检测, 级联在 Sobel 之后
+//	输入用 Sobel 输出的 source_gray(中值滤波后的灰度, 与 sobel_bin 逐像素对齐),
+//	Sobel 二值结果从 side_in 旁路穿过 Canny 的 4 级窗口, 出来时与 Canny 结果逐像素对齐,
+//	所以按键在 Sobel/Canny 之间切换不需要另做延迟对齐, 两路共用同一条彩色延迟线。
+//	CANNY_EN=0: 不例化 Canny (省资源/对比实验), 模式 1/2 自动退回 Sobel。
+////////////////////////////////////////////////////////////////
+localparam CANNY_EN = 1'b1;
+wire        edge_sop, edge_eop, edge_valid;
+wire        canny_bit, sobel_bit;		//同一时刻、同一像素的 Canny / Sobel 二值结果
+generate
+	if (CANNY_EN) begin : g_canny
+		canny_edge #(
+			.WIDTH (1280),
+			.HEIGHT(720)
+		) u_canny_edge (
+			.clk         (w_cmos_pclk     ),
+			.rst_n       (rstn_sys        ),
+			.th_high     (sobel_thr_pclk  ),
+			.th_low      ({1'b0, sobel_thr_pclk[10:1]}),
+			.sink_sop    (sobel_sop       ),
+			.sink_eop    (sobel_eop       ),
+			.sink_valid  (sobel_valid     ),
+			.sink_data   (sobel_gray      ),
+			.side_in     (sobel_bin[7]    ),
+			.source_sop  (edge_sop        ),
+			.source_eop  (edge_eop        ),
+			.source_valid(edge_valid      ),
+			.source_edge (canny_bit       ),
+			.side_out    (sobel_bit       )
+		);
+	end
+	else begin : g_no_canny
+		assign edge_sop   = sobel_sop;
+		assign edge_eop   = sobel_eop;
+		assign edge_valid = sobel_valid;
+		assign canny_bit  = sobel_bin[7];
+		assign sobel_bit  = sobel_bin[7];
+	end
+endgenerate
+//	当前模式选用的二值边缘
+wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	reg			r_XYCrop_frame_vsync = 0; 
 	reg			r_XYCrop_frame_href = 0;
 	reg			r_XYCrop_frame_de = 0;
@@ -1030,35 +1076,88 @@ Sobeledge_8d_proc #(
 
 	////////////////////////////////////////////////////////////////
 	//	DDR R/W Control
-	//	彩色延迟线: 打包进同一个 DDR 字的"彩色像素"必须和"边缘位"指向同一场景像素,
-	//	所以延迟量要等于"从 data_w0 到 sobel_bin 的像素时钟延迟"。
-	//	注意它 != sobel_bin 的"帧内位置滞后"(2*WIDTH-1=2559): 中值/Sobel 内部
-	//	sop/eop/valid 与像素通路的延迟差也要算进来(矩阵帧标记只延3拍、中心像素延W+3拍)。
-	//	原来写的 7+(2*WIDTH-1)=2566 少了约10拍, 红边会相对彩色原图往右偏约10像素。
-	//	实测(sim/tb_align_probe.v: 复刻本延迟环+打包, 扫 RGB_DLY 找"红边正好压住彩色边缘"):
-	//	  中值启用 : 仿真对齐点 = 7 + 2*WIDTH + 9   (WIDTH=1280 -> 2576)
-	//	  中值旁路 : 仿真对齐点 = 7 +   WIDTH + 5   (WIDTH=1280 -> 1292)
-	//	W=1280 复核仿真: 2577 时残差 0, 2569 时红边偏右 1 像素(斜率 1:1)。
-	//	上板实测: 2576 时红边略偏左 => 板上比仿真多约 2 拍, 故在仿真值上回调 2:
-	//	  中值启用 2576-2 = 2574, 中值旁路 1292-2 = 1290
-	//	若仍有 1~2 像素残差, 直接在这个常数上 ±1/±2 微调即可(加=边缘往左移)。
-	localparam RGB_DLY = 7 + (MEDIAN_EN ? (2*1280 + 7) : (1280 + 3));
-	reg  [15:0] rgb_line [0:4095];
-	reg  [11:0] rgb_wptr  = 12'd0;
-	reg  [11:0] rgb_raddr = 12'd0;
-	reg  [15:0] rgb_dly   = 16'd0;
-	always @(posedge w_cmos_pclk) begin
-		if(valid_w0) begin
-			rgb_line[rgb_wptr] <= data_w0;
-			rgb_wptr  <= rgb_wptr + 1'b1;
-			rgb_raddr <= rgb_wptr - (RGB_DLY - 1);	// 读地址滞后1拍 + 读数据再滞后1拍 = RGB_DLY
-		end
-		rgb_dly <= rgb_line[rgb_raddr];		// 同步读: 块RAM推断的标准写法, 行为确定
-	end
+	//	彩色延迟线(块RAM环形缓冲): 让 RGB565 原图与边缘结果在同一时刻打包进 DDR。
+	//
+	//	[dyc 改] 原来按"固定延迟 RGB_DLY 个像素"读, RGB_DLY = 窗口序号滞后 + 实测时钟拍数 混算,
+	//	         各级窗口自身的几拍时钟延迟没算进去, 行尾 valid 断续时还会漂, 接上 Canny 后误差更大。
+	//	现改为按"像素序号"对齐, 与时钟延迟、valid 是否连续都无关:
+	//	  * 写侧: 每个输入像素(valid_w0)写一格, 帧首像素(sop_w0)记下它的地址 rgb_base
+	//	  * 流水线每一级都是"一进一出", 输出帧第 n 个像素对应输入帧第 n - PIPE_LAG 个像素
+	//	    (每级 3x3 窗口序号滞后 WIDTH+1, 见 sim/tb_pipeline_latency.v、sim/tb_canny_edge.v)
+	//	  * 读侧: 输出帧首像素时读地址 = rgb_base - PIPE_LAG, 之后每输出一个像素地址 +1
+	//	  * 环深 8192 取 2 的幂, 地址减法自然回绕
+	//	PIPE_LAG: 中值 1281 + Sobel 1281 + Canny 4*1281 = 7686 (rgb2gray 是纯时钟流水线, 序号滞后 0)
+	localparam [31:0] PIPE_LAG = (MEDIAN_EN ? 1281 : 0) + 1281 + (CANNY_EN ? 4*1281 : 0);
+	wire [15:0] rgb_dly;
+	wire        pk_valid, pk_sop, pk_eop, pk_edge;		//打包级: 比 edge_* 晚一拍, 与 rgb_dly 同拍
+	rgb_align_ring #(
+		.AW  (13),			//环深 8192 > 7686 + 在途像素
+		.LAG (PIPE_LAG)
+	) u_rgb_align_ring (
+		.clk      (w_cmos_pclk),
+		.in_valid (valid_w0   ),
+		.in_sop   (sop_w0     ),
+		.in_rgb   (data_w0    ),
+		.out_valid(edge_valid ),
+		.out_sop  (edge_sop   ),
+		.out_eop  (edge_eop   ),
+		.out_edge (edge_bit   ),
+		.pk_valid (pk_valid   ),
+		.pk_sop   (pk_sop     ),
+		.pk_eop   (pk_eop     ),
+		.pk_edge  (pk_edge    ),
+		.pk_rgb   (rgb_dly    )
+	);
 	//	整帧统一打包(一个像素16bit): {RGB555, 二值边缘标志}
 	//	显示端再用 lcd_xpos 决定左半屏画彩色+红边、右半屏画二值边缘
 	//	(不在写侧用列计数器分流, 避免计数器与真实列号对不齐导致画面被切成竖条)
-	wire [15:0] wframe_pack = {rgb_dly[15:11], rgb_dly[10:6], rgb_dly[4:0], sobel_bin[7]};
+	wire [15:0] wframe_pack = {rgb_dly[15:11], rgb_dly[10:6], rgb_dly[4:0], pk_edge};
+
+	////////////////////////////////////////////////////////////////
+	//	【高阶挑战6】简易目标识别 (模块: src/shape/, 原作者 梁雅萱, lyx 分支)
+	//	在写入 DDR 的同一路边缘流上做单遍几何特征统计(包围盒/周长/扫描线填充面积),
+	//	帧末按填充率分类: 矩形≈1.0 圆≈0.785 三角形≈0.5。坐标即 DDR/屏幕坐标, 显示端可直接画框。
+	//	识别始终在跑(用当前模式选中的边缘), 叠加显示只在模式 2 打开。
+	////////////////////////////////////////////////////////////////
+	wire [1:0]  shp_shape;
+	wire [10:0] shp_x0, shp_x1;
+	wire [9:0]  shp_y0, shp_y1;
+	wire [23:0] shp_edge_cnt, shp_area;
+	wire [15:0] shp_ratio;
+	wire        shp_rvalid;
+	shape_recognizer #(
+		.H_ACTIVE (1280),
+		.V_ACTIVE (720),
+		.XW       (11),
+		.YW       (10),
+		.CW       (24),
+		.MIN_EDGE (24'd400),		//ROI 内边缘像素少于此数判"未识别"
+		.RECT_Q   (16'd230),		//填充率 >= 0.90 -> 矩形
+		.CIRC_Q   (16'd168),		//填充率 >= 0.66 -> 圆形
+		.TRI_Q    (16'd96),			//填充率 >= 0.38 -> 三角形
+		.ROI_X0   (320),			//只统计画面正中 640x480, 排除背景杂波
+		.ROI_X1   (959),
+		.ROI_Y0   (120),
+		.ROI_Y1   (599)
+	) u_shape_recognizer (
+		.clk          (w_cmos_pclk  ),
+		.rst_n        (rstn_sys     ),
+		.st_sop       (pk_sop       ),
+		.st_eop       (pk_eop       ),
+		.st_valid     (pk_valid     ),
+		.st_data      ({8{pk_edge}} ),	//已是二值边缘, 扩成 0x00/0xFF
+		.thresh       (8'h80        ),
+		.roi_en       (1'b1         ),
+		.shape        (shp_shape    ),
+		.box_x0       (shp_x0       ),
+		.box_x1       (shp_x1       ),
+		.box_y0       (shp_y0       ),
+		.box_y1       (shp_y1       ),
+		.feat_edge    (shp_edge_cnt ),
+		.feat_area    (shp_area     ),
+		.feat_ratio_q (shp_ratio    ),
+		.result_valid (shp_rvalid   )
+	);
 	
 
 	wire                            lcd_de;
@@ -1114,7 +1213,7 @@ Sobeledge_8d_proc #(
 
 		.wframe_pclk    (w_cmos_pclk          ),
 		.wframe_vsync   (!cmos_frame_vsync     ),//Writter VSync. Flush on rising edge. Connect to EOF. 
-		.wframe_data_en (sobel_valid             ),//(cmos_frame_href   ),
+		.wframe_data_en (pk_valid                ),//与 wframe_pack 同拍的输出像素有效
 		//彩色叠加+分屏: 参见上面 wframe_pack 的说明
 		.wframe_data    (wframe_pack),
 		
@@ -1136,7 +1235,9 @@ Sobeledge_8d_proc #(
 	//	分屏显示: 左半屏(x<640) = 原始彩色图 + 红色边缘叠加; 右半屏 = 边缘检测结果
 	//	DDR里一个像素16bit(按列打包): 左半屏 [15:11]=R5 [10:6]=G5 [5:1]=B5 [0]=二值边缘
 	//	                              右半屏 [15:8]=原图灰度 [7:0]=边缘结果
-	wire 	[11:0] 	lcd_xpos; 
+	//	注: 读 FIFO(R0_FIFO_16)是 FWFT 模式, lcd_request 拉高那一拍数据已在口上,
+	//	    所以 lcd_xpos/lcd_ypos 与 lcd_data 同拍且恰好等于图像列号/行号
+	wire 	[11:0] 	lcd_xpos, lcd_ypos;
 	//	左半屏: RGB555 按高位复制扩展成 RGB888, 边缘标志置1的像素画成红色
 	wire 	[23:0] 	lcd_rgb888 = {lcd_data[15:11], lcd_data[13:11],	// R5 -> R8
 	                              lcd_data[10:6],  lcd_data[8:6],	// G5 -> G8
@@ -1145,9 +1246,64 @@ Sobeledge_8d_proc #(
 	//	右半屏: 二值边缘图(白=边缘, 黑=背景)
 	wire 	[23:0] 	lcd_right = lcd_data[0] ? 24'hFFFFFF : 24'h000000;
 	wire 	[23:0] 	lcd_pixel = (lcd_xpos < 12'd640) ? lcd_left : lcd_right;
-	wire 	[7:0] 	lcd_data_r = lcd_pixel[23:16]; 
-	wire 	[7:0] 	lcd_data_g = lcd_pixel[15:8]; 
-	wire 	[7:0] 	lcd_data_b = lcd_pixel[7:0]; 
+
+	////////////////////////////////////////////////////////////////
+	//	【高阶挑战6】识别结果 跨时钟域(w_cmos_pclk -> clk_pixel) + 屏幕叠加
+	//	结果每帧只更新一次且保持一整帧, 用电平翻转握手传递
+	////////////////////////////////////////////////////////////////
+	wire [1:0]  disp_shape;
+	wire [10:0] disp_x0, disp_x1;
+	wire [9:0]  disp_y0, disp_y1;
+	wire [15:0] disp_ratio;
+	wire        disp_svalid;
+	shape_result_cdc #(.XW(11), .YW(10)) u_shape_result_cdc (
+		.clk_a   (w_cmos_pclk ),
+		.rst_a_n (rstn_sys    ),
+		.load    (shp_rvalid  ),
+		.shape_a (shp_shape   ),
+		.x0_a    (shp_x0      ),
+		.x1_a    (shp_x1      ),
+		.y0_a    (shp_y0      ),
+		.y1_a    (shp_y1      ),
+		.ratio_a (shp_ratio   ),
+		.clk_b   (clk_pixel   ),
+		.rst_b_n (rstn_pixel  ),
+		.shape_b (disp_shape  ),
+		.x0_b    (disp_x0     ),
+		.x1_b    (disp_x1     ),
+		.y0_b    (disp_y0     ),
+		.y1_b    (disp_y1     ),
+		.ratio_b (disp_ratio  ),
+		.valid_b (disp_svalid )
+	);
+	//	模式2 才显示叠加层: 模式是准静态电平, 两级同步即可
+	reg  [1:0]  ov_en_sync = 2'b00;
+	always @(posedge clk_pixel) ov_en_sync <= {ov_en_sync[0], (sobel_mode_sys == 2'd2)};
+	wire [23:0] lcd_ov;
+	shape_overlay #(
+		.S         (2),		//文字放大 2 倍, 每个汉字 32x32
+		.X_SHIFT   (0),		//FWFT 读 FIFO, lcd_xpos 已等于图像列号(lyx 原版取 1 会偏一列)
+		.LABEL_X   (24),
+		.LABEL_Y   (24),
+		.BOX_THICK (2)
+	) u_shape_overlay (
+		.clk   (clk_pixel   ),
+		.rst_n (rstn_pixel  ),
+		.de    (lcd_request & ov_en_sync[1]),
+		.xpos  (lcd_xpos    ),
+		.ypos  (lcd_ypos    ),
+		.base  (lcd_pixel   ),
+		.shape (disp_shape  ),
+		.bx0   ({1'b0, disp_x0}),
+		.bx1   ({1'b0, disp_x1}),
+		.by0   ({2'b0, disp_y0}),
+		.by1   ({2'b0, disp_y1}),
+		.valid (disp_svalid ),
+		.rgb   (lcd_ov      )
+	);
+	wire 	[7:0] 	lcd_data_r = lcd_ov[23:16];
+	wire 	[7:0] 	lcd_data_g = lcd_ov[15:8];
+	wire 	[7:0] 	lcd_data_b = lcd_ov[7:0];
 	
 	lcd_driver u_lcd_driver
 	(
@@ -1164,7 +1320,8 @@ Sobeledge_8d_proc #(
 	    .lcd_vs     (lcd_vs         ),
 	    .lcd_en     (lcd_de         ),
 	    .lcd_rgb    ({lcd_red2,lcd_green2,lcd_blue2, lcd_red,lcd_green,lcd_blue}),
-	    .lcd_xpos   (lcd_xpos),	//	用于分屏判断左右半屏
+	    .lcd_xpos   (lcd_xpos),	//	用于分屏判断左右半屏 / 叠加层定位
+	    .lcd_ypos   (lcd_ypos),	//	叠加层定位
 	    
 	    //  user interface
 	    .lcd_data   ({lcd_data_r, lcd_data_g, lcd_data_b}  )
