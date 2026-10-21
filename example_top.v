@@ -1113,9 +1113,23 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	//	(不在写侧用列计数器分流, 避免计数器与真实列号对不齐导致画面被切成竖条)
 	wire [15:0] wframe_pack = {rgb_dly[15:11], rgb_dly[10:6], rgb_dly[4:0], pk_edge};
 
+	//	白纸上的深色图形改用颜色掩码识别，避免 Canny 边缘落在白色一侧。
+	//	显示仍使用原始边缘；设为 0 可恢复原识别输入。
+	localparam SHAPE_DARK_INK_EN = 1'b1;
+	wire shape_edge;
+	shape_color_gate #(.ENABLE(SHAPE_DARK_INK_EN)) u_shape_color_gate (
+		.clk     (w_cmos_pclk),
+		.rst_n   (rstn_sys),
+		.valid   (pk_valid),
+		.sop     (pk_sop),
+		.edge_in (pk_edge),
+		.rgb565  (rgb_dly),
+		.edge_out(shape_edge)
+	);
+
 	////////////////////////////////////////////////////////////////
 	//	【高阶挑战6】简易目标识别 (模块: src/shape/, 原作者 梁雅萱, lyx 分支)
-	//	在写入 DDR 的同一路边缘流上做单遍几何特征统计(包围盒/周长/扫描线填充面积),
+	//	在写入 DDR 的同一路像素流上做单遍几何特征统计；暗色模式下输入为深色像素掩码。
 	//	帧末按填充率分类: 矩形≈1.0 圆≈0.785 三角形≈0.5。坐标即 DDR/屏幕坐标, 显示端可直接画框。
 	//	识别始终在跑(用当前模式选中的边缘), 叠加显示只在模式 2 打开。
 	////////////////////////////////////////////////////////////////
@@ -1145,7 +1159,7 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 		.st_sop       (pk_sop       ),
 		.st_eop       (pk_eop       ),
 		.st_valid     (pk_valid     ),
-		.st_data      ({8{pk_edge}} ),	//已是二值边缘, 扩成 0x00/0xFF
+		.st_data      ({8{shape_edge}}),	//深色目标掩码；显示边缘仍由 pk_edge 提供
 		.thresh       (8'h80        ),
 		.roi_en       (1'b1         ),
 		.shape        (shp_shape    ),
