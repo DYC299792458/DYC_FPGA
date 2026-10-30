@@ -13,7 +13,7 @@
 //   T6 K2 长按 -> 回放
 //   T7 回放中 K1/K2 短按翻帧, 阈值不变
 //   T8 K2 长按 -> 退出回放
-//   T9 K1+K2 -> 算法模式循环, 不触发冻结
+//   T9 K1+K2 -> 画面模式循环, Canny+识别保持不变, 不触发冻结
 //   T10 cfg_toggle 上电推送
 //======================================================================
 module tb_sobel_ctrl;
@@ -36,6 +36,7 @@ wire [10:0] threshold;
 wire [1:0]  mode;
 wire        cfg_toggle;
 wire [1:0]  disp_mode;
+wire [1:0]  view_mode;
 wire        freeze_enter;
 wire [6:0]  freeze_slot_in;
 wire        replay_enter;
@@ -59,7 +60,7 @@ sobel_ctrl #(.CLK_FREQ(CLK_FREQ)) dut (
 	.key1_n(key1_n), .key2_n(key2_n),
 	.live_slot(live_slot), .live_valid(live_valid), .frames_ready(frames_ready),
 	.threshold(threshold), .mode(mode), .cfg_toggle(cfg_toggle),
-	.disp_mode(disp_mode),
+	.disp_mode(disp_mode), .view_mode(view_mode),
 	.freeze_enter(freeze_enter), .freeze_slot_in(freeze_slot_in),
 	.replay_enter(replay_enter), .step_prev(step_prev), .step_next(step_next)
 );
@@ -116,6 +117,7 @@ initial begin
 	chk(threshold == 11'd64, "default threshold = 64");
 	chk(mode == 2'd2, "default algo mode = 2");
 	chk(disp_mode == 2'd0, "default display = live");
+	chk(view_mode == 2'd0, "default view = split color/gray");
 
 	// T2 短按
 	$display("-- T2 short press --");
@@ -167,14 +169,16 @@ initial begin
 	k2_press(900);
 	chk(disp_mode == 2'd0, "K2 long: back to live");
 
-	// T9 组合键
-	$display("-- T9 combo algo mode --");
+	// T9 组合键: 分屏 -> 全屏原图 -> 全屏灰度 -> 分屏
+	$display("-- T9 combo view mode --");
 	combo_press(100);
-	chk(mode == 2'd0, "combo: algo 2 -> 0");
+	chk(view_mode == 2'd1, "combo: split -> full color");
+	chk(mode == 2'd2, "combo: keep Canny+recognition");
 	combo_press(100);
-	chk(mode == 2'd1, "combo: algo 0 -> 1");
+	chk(view_mode == 2'd2, "combo: full color -> full gray");
+	chk(mode == 2'd2, "combo: algo still fixed");
 	combo_press(100);
-	chk(mode == 2'd2, "combo: algo 1 -> 2");
+	chk(view_mode == 2'd0, "combo: full gray -> split");
 	chk(freeze_cnt == 1, "combo: no freeze");
 	chk(disp_mode == 2'd0, "combo: still live");
 

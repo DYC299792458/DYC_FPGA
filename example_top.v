@@ -934,10 +934,8 @@ wire [7:0]  sobel_in_data  = MEDIAN_EN ? med_data  : gray_data;
 //	按键(核心板丝印K1/K2, 低有效, 1.8V bank1A):
 //	  K1 短按 阈值-8, 按住0.5s后每80ms连减
 //	  K2 短按 阈值+8, 按住0.5s后每80ms连加
-//	  K1+K2 同时按 = 切换算法模式, 循环 0 -> 1 -> 2 -> 0, 上电默认 2:
-//	    0 = Sobel 二值边缘
-//	    1 = Canny 边缘                          (高阶挑战4)
-//	    2 = Canny 边缘 + 简易目标识别叠加显示    (高阶挑战4 + 6)
+//	  K1+K2 同时按 = 切换实时画面: 左原图右灰度 -> 全屏原图 -> 全屏灰度
+//	  算法固定为 Canny 边缘 + 多目标识别，切换画面不改变 Canny 边缘线
 //	  阈值对两种算法都生效: Sobel 用它二值化; Canny 强阈值 = 阈值, 弱阈值 = 阈值/2
 //	sobel_ctrl 在 clk_sys 域, 阈值/模式用 toggle 握手搬到 cmos_pclk 域再给 Sobel/Canny 用
 //	【高阶挑战3】同一模块还负责: K1 长按冻结 / K2 长按回放 / 回放翻帧
@@ -945,6 +943,7 @@ wire [10:0] sobel_thr_sys;		//clk_sys 域当前阈值
 wire [1:0]  sobel_mode_sys;		//clk_sys 域算法模式 0 Sobel / 1 Canny / 2 Canny+识别
 wire        sobel_cfg_toggle;	//配置变化标志
 wire [1:0]  disp_mode_sys;		//0 实时 / 1 冻结 / 2 回放
+wire [1:0]  view_mode_sys;		//0 左原图右灰度 / 1 全屏原图 / 2 全屏灰度
 wire [6:0]  w_live_slot, w_freeze_slot, w_replay_slot, w_ring_count;
 wire        w_live_valid, w_frame_commit, w_underrun;
 wire        w_freeze_enter, w_replay_enter, w_step_prev, w_step_next;
@@ -963,6 +962,7 @@ sobel_ctrl #(
 	.mode       (sobel_mode_sys ),
 	.cfg_toggle (sobel_cfg_toggle),
 	.disp_mode  (disp_mode_sys  ),
+	.view_mode  (view_mode_sys  ),
 	.freeze_enter  (w_freeze_enter  ),
 	.freeze_slot_in(w_freeze_slot_in),
 	.replay_enter  (w_replay_enter  ),
@@ -1187,6 +1187,7 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	wire lcd_line_start, lcd_frame_start;
 	wire [11:0] lcd_vcnt;
 	wire [15:0] pix_l, pix_r;
+	wire [7:0]  pix_gray;
 	wire        pix_valid, pix_split;
 	
 	//	【高阶挑战3】DDR3 帧存储: 100 帧环 + 3 个实时 scratch 槽,
@@ -1275,6 +1276,7 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 		.lcd_xpos       (lcd_xpos           ),
 		.pix_l          (pix_l              ),
 		.pix_r          (pix_r              ),
+		.pix_gray       (pix_gray           ),
 		.pix_valid      (pix_valid          ),
 		.pix_split      (pix_split          )
 	);
@@ -1285,13 +1287,11 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	////////////////////////////////////////////////////////////////
 	//  LCD Timing Driver
 	//	【高阶挑战3】显示合成:
-	//	  实时模式 : 左 640 列 = 彩色原图+红色 Canny 边缘 + 目标框/标签,
-	//	             右 640 列 = Canny 二值边缘 (与旧版默认一致)
+	//	  K1+K2 循环: 左原图右灰度 / 全屏原图 / 全屏灰度；红色 Canny 边缘保持不变
 	//	  冻结/回放: 左 640 列 = 实时原始彩色, 右 640 列 = 冻结/历史原始彩色,
 	//	             两个源都按 2x2 抽样成 640x360, 上下留黑边
-	//	  帧存储 pix_l = {RGB555,edge}, pix_r = {8'h0,median_gray}
+	//	  帧存储 pix_l = {RGB555,edge}, pix_gray = median_gray
 	wire 	[11:0] 	lcd_xpos, lcd_ypos;
-	localparam LIVE_SPLIT = 1'b0;		//多目标演示使用完整彩色画面；1 时保留旧的左右对比
 	wire 	[23:0] 	lcd_col_l = {pix_l[15:11], pix_l[13:11],	// R5 -> R8
 	                             pix_l[10:6],  pix_l[8:6],	// G5 -> G8
 	                             pix_l[5:1],   pix_l[3:1]};	// B5 -> B8
@@ -1299,12 +1299,23 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	                             pix_r[10:6],  pix_r[8:6],
 	                             pix_r[5:1],   pix_r[3:1]};
 	wire 	[23:0] 	lcd_live_col = pix_l[0] ? 24'hFF0000 : lcd_col_l;
-	wire 	[23:0] 	lcd_live_bin = pix_l[0] ? 24'hFFFFFF : 24'h000000;
-	//	实时: 左彩色+红边 / 右二值;  冻结/回放: 左右都是原始彩色
+	wire 	[23:0] 	lcd_gray = {pix_gray, pix_gray, pix_gray};
+	wire 	[23:0] 	lcd_live_gray = pix_l[0] ? 24'hFF0000 : lcd_gray;
+	reg [1:0] view_mode_p1, view_mode_p2, view_mode_frame;
+	always @(posedge clk_pixel or negedge rstn_pixel)
+		if(!rstn_pixel) begin
+			view_mode_p1<=2'd0; view_mode_p2<=2'd0; view_mode_frame<=2'd0;
+		end else begin
+			view_mode_p1<=view_mode_sys;
+			view_mode_p2<=view_mode_p1;
+			if(lcd_frame_start) view_mode_frame<=view_mode_p2;
+		end
+	//	实时: 三种画面只改变底图；冻结/回放仍为左右历史对比
 	wire 	[23:0] 	lcd_pixel = !pix_valid ? 24'h000000 :
 	                           (pix_split ? ((lcd_xpos < 12'd640) ? lcd_col_l : lcd_col_r)
-	                                      : (LIVE_SPLIT ? ((lcd_xpos < 12'd640) ? lcd_live_col : lcd_live_bin)
-	                                                    : lcd_live_col));
+	                                      : ((view_mode_frame == 2'd1) ? lcd_live_col :
+	                                         (view_mode_frame == 2'd2) ? lcd_live_gray :
+	                                         ((lcd_xpos < 12'd640) ? lcd_live_col : lcd_live_gray)));
 
 	////////////////////////////////////////////////////////////////
 	//	【高阶挑战6】识别结果 跨时钟域(w_cmos_pclk -> clk_pixel) + 屏幕叠加

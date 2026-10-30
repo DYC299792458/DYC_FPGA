@@ -1,12 +1,13 @@
 //======================================================================
-//  sobel_ctrl.v   按键控制: 阈值 / 算法模式 / 冻结 / 100帧回放
+//  sobel_ctrl.v   按键控制: 阈值 / 画面模式 / 冻结 / 100帧回放
 //
 //   K1 短按 : 实时/冻结模式 阈值 -8;  回放模式 上一帧
 //   K2 短按 : 实时/冻结模式 阈值 +8;  回放模式 下一帧
 //   K1 长按(0.8s) : 实时 -> 冻结(画面定格在按下沿那一帧) / 冻结 -> 实时
 //                   回放 -> 实时
 //   K2 长按(0.8s) : 实时/冻结 -> 回放(从最新一帧开始) / 回放 -> 实时
-//   K1+K2 同时按   : 算法模式循环 2(Canny+识别) -> 0(Sobel) -> 1(Canny) -> 2
+//   K1+K2 同时按   : 画面循环 左原图右灰度 -> 全屏原图 -> 全屏灰度 -> 左右分屏
+//   算法固定为 Canny+识别，组合键只改显示，不改 Canny 边缘检测
 //
 //   按键低有效, 两级同步 + 20ms 消抖
 //   长按触发点在按住 0.8s 时; 冻结帧的槽号在"按下沿"就锁存, 所以定格的
@@ -32,6 +33,7 @@ module sobel_ctrl #(
 	output reg  [1:0]  mode,			// 算法: 0 Sobel 1 Canny 2 Canny+识别
 	output reg         cfg_toggle,
 	output reg  [1:0]  disp_mode,		// 显示: 0 实时 1 冻结 2 回放
+	output reg  [1:0]  view_mode,		// 实时画面: 0 左原图右灰度 1 全屏原图 2 全屏灰度
 	output reg         freeze_enter,
 	output reg  [6:0]  freeze_slot_in,
 	output reg         replay_enter,
@@ -76,7 +78,7 @@ module sobel_ctrl #(
 	wire both = p1 & p2;
 
 //----------------------------------------------------------------------
-// 组合键 (算法模式)
+// 组合键 (画面模式)
 //----------------------------------------------------------------------
 	reg both_d;
 	always @(posedge clk or negedge rst_n)
@@ -157,11 +159,16 @@ module sobel_ctrl #(
 			threshold <= (threshold < (THR_MAX - THR_STEP)) ? (threshold + THR_STEP) : THR_MAX;
 
 //----------------------------------------------------------------------
-// 算法模式 (K1+K2)
+// 算法固定为 Canny+识别；K1+K2 只循环画面模式
 //----------------------------------------------------------------------
 	always @(posedge clk or negedge rst_n)
 		if(!rst_n) mode <= MODE_DEFAULT;
-		else if(combo_hit) mode <= (mode==2'd2) ? 2'd0 : (mode + 1'b1);
+		else       mode <= MODE_DEFAULT;
+
+	always @(posedge clk or negedge rst_n)
+		if(!rst_n) view_mode <= 2'd0;
+		else if(combo_hit)
+			view_mode <= (view_mode == 2'd2) ? 2'd0 : (view_mode + 1'b1);
 
 //----------------------------------------------------------------------
 // 显示模式 / 冻结 / 回放
