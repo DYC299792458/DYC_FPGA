@@ -49,6 +49,9 @@
         <efx:design_file name="src/shape/shape_recognizer.v" version="default" library="default"/>
         <efx:design_file name="src/shape/shape_result_cdc.v" version="default" library="default"/>
         <efx:design_file name="src/shape/shape_overlay.v" version="default" library="default"/>
+        <efx:design_file name="src/shape/shape_multi_recognizer.v" version="default" library="default"/>
+        <efx:design_file name="src/shape/shape_result_cdc3.v" version="default" library="default"/>
+        <efx:design_file name="src/shape/shape_overlay_multi.v" version="default" library="default"/>
         <efx:design_file name="src/shape/font_cn_rom.v" version="default" library="default"/>
         <efx:top_vhdl_arch name=""/>
     </efx:design_info>

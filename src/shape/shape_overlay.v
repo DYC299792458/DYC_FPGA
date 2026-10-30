@@ -99,7 +99,7 @@ module shape_overlay #(
     end
 
     // {shape, 第几个字} -> 字模编号（见 font_cn_rom.v 的索引表）
-    reg [3:0] msg_gl;
+    reg [4:0] msg_gl;
     always @(*) begin
         case ({shape, gidx})
             // 未识别 : 未(6) 识(7) 别(8)

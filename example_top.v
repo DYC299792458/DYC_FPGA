@@ -1134,48 +1134,40 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	wire [31:0] wframe_pack = {pk_sop, pk_eop, 6'h00, gray_dly, wraw_pix};
 
 	////////////////////////////////////////////////////////////////
-	//	【高阶挑战6】简易目标识别 (模块: src/shape/, 原作者 梁雅萱, lyx 分支)
-	//	在写入 DDR 的同一路边缘流上做单遍几何特征统计(包围盒/周长/扫描线填充面积),
-	//	帧末按填充率分类: 矩形≈1.0 圆≈0.785 三角形≈0.5。坐标即 DDR/屏幕坐标, 显示端可直接画框。
-	//	识别始终在跑(用当前模式选中的边缘), 叠加显示只在模式 2 打开。
+	//	【拓展】同屏三目标识别：三个不可见横向搜索区分别统计包围盒、填充率、
+	//	宽度变化和边界漂移，识别圆形/矩形/三角形/平行四边形/五角星。
+	//	显示保持完整画面，每个目标独立绘制彩色框和中文类别标签。
 	////////////////////////////////////////////////////////////////
-	wire [1:0]  shp_shape;
-	wire [10:0] shp_x0, shp_x1;
-	wire [9:0]  shp_y0, shp_y1;
-	wire [23:0] shp_edge_cnt, shp_area;
-	wire [15:0] shp_ratio;
+	wire [2:0]  shp_shape0, shp_shape1, shp_shape2;
+	wire [10:0] shp0_x0, shp0_x1, shp1_x0, shp1_x1, shp2_x0, shp2_x1;
+	wire [9:0]  shp0_y0, shp0_y1, shp1_y0, shp1_y1, shp2_y0, shp2_y1;
 	wire        shp_rvalid;
-	shape_recognizer #(
+	shape_multi_recognizer #(
 		.H_ACTIVE (1280),
 		.V_ACTIVE (720),
 		.XW       (11),
 		.YW       (10),
 		.CW       (24),
-		.MIN_EDGE (24'd400),		//ROI 内边缘像素少于此数判"未识别"
-		.RECT_Q   (16'd230),		//填充率 >= 0.90 -> 矩形
-		.CIRC_Q   (16'd168),		//填充率 >= 0.66 -> 圆形
-		.TRI_Q    (16'd96),			//填充率 >= 0.38 -> 三角形
-		.ROI_X0   (400),			//只统计画面正中 480x360, 排除背景杂波
-		.ROI_X1   (879),
-		.ROI_Y0   (180),
-		.ROI_Y1   (539)
-	) u_shape_recognizer (
+		.MIN_EDGE (24'd180),
+		.TURN_EPS (4),
+		.ROI_Y0   (40),
+		.ROI_Y1   (679)
+	) u_shape_multi_recognizer (
 		.clk          (w_cmos_pclk  ),
 		.rst_n        (rstn_sys     ),
 		.st_sop       (pk_sop       ),
 		.st_eop       (pk_eop       ),
 		.st_valid     (pk_valid     ),
-		.st_data      ({8{pk_edge}} ),	//已是二值边缘, 扩成 0x00/0xFF
-		.thresh       (8'h80        ),
-		.roi_en       (1'b1         ),
-		.shape        (shp_shape    ),
-		.box_x0       (shp_x0       ),
-		.box_x1       (shp_x1       ),
-		.box_y0       (shp_y0       ),
-		.box_y1       (shp_y1       ),
-		.feat_edge    (shp_edge_cnt ),
-		.feat_area    (shp_area     ),
-		.feat_ratio_q (shp_ratio    ),
+		.st_edge      (pk_edge      ),
+		.shape0       (shp_shape0   ),
+		.box0_x0      (shp0_x0      ), .box0_x1 (shp0_x1),
+		.box0_y0      (shp0_y0      ), .box0_y1 (shp0_y1),
+		.shape1       (shp_shape1   ),
+		.box1_x0      (shp1_x0      ), .box1_x1 (shp1_x1),
+		.box1_y0      (shp1_y0      ), .box1_y1 (shp1_y1),
+		.shape2       (shp_shape2   ),
+		.box2_x0      (shp2_x0      ), .box2_x1 (shp2_x1),
+		.box2_y0      (shp2_y0      ), .box2_y1 (shp2_y1),
 		.result_valid (shp_rvalid   )
 	);
 	
@@ -1299,7 +1291,7 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	//	             两个源都按 2x2 抽样成 640x360, 上下留黑边
 	//	  帧存储 pix_l = {RGB555,edge}, pix_r = {8'h0,median_gray}
 	wire 	[11:0] 	lcd_xpos, lcd_ypos;
-	localparam LIVE_SPLIT = 1'b1;		//1=实时左右分屏(左彩色+红边/右二值)  0=整屏二值
+	localparam LIVE_SPLIT = 1'b0;		//多目标演示使用完整彩色画面；1 时保留旧的左右对比
 	wire 	[23:0] 	lcd_col_l = {pix_l[15:11], pix_l[13:11],	// R5 -> R8
 	                             pix_l[10:6],  pix_l[8:6],	// G5 -> G8
 	                             pix_l[5:1],   pix_l[3:1]};	// B5 -> B8
@@ -1311,38 +1303,32 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	//	实时: 左彩色+红边 / 右二值;  冻结/回放: 左右都是原始彩色
 	wire 	[23:0] 	lcd_pixel = !pix_valid ? 24'h000000 :
 	                           (pix_split ? ((lcd_xpos < 12'd640) ? lcd_col_l : lcd_col_r)
-	                                      : ((LIVE_SPLIT && (lcd_xpos < 12'd640)) ? lcd_live_col
-	                                                                              : lcd_live_bin));
+	                                      : (LIVE_SPLIT ? ((lcd_xpos < 12'd640) ? lcd_live_col : lcd_live_bin)
+	                                                    : lcd_live_col));
 
 	////////////////////////////////////////////////////////////////
 	//	【高阶挑战6】识别结果 跨时钟域(w_cmos_pclk -> clk_pixel) + 屏幕叠加
 	//	结果每帧只更新一次且保持一整帧, 用电平翻转握手传递
 	////////////////////////////////////////////////////////////////
-	wire [1:0]  disp_shape;
-	wire [10:0] disp_x0, disp_x1;
-	wire [9:0]  disp_y0, disp_y1;
-	wire [15:0] disp_ratio;
-	wire        disp_svalid;
-	shape_result_cdc #(.XW(11), .YW(10)) u_shape_result_cdc (
-		.clk_a   (w_cmos_pclk ),
-		.rst_a_n (rstn_sys    ),
-		.load    (shp_rvalid  ),
-		.shape_a (shp_shape   ),
-		.x0_a    (shp_x0      ),
-		.x1_a    (shp_x1      ),
-		.y0_a    (shp_y0      ),
-		.y1_a    (shp_y1      ),
-		.ratio_a (shp_ratio   ),
-		.clk_b   (clk_pixel   ),
-		.rst_b_n (rstn_pixel  ),
-		.shape_b (disp_shape  ),
-		.x0_b    (disp_x0     ),
-		.x1_b    (disp_x1     ),
-		.y0_b    (disp_y0     ),
-		.y1_b    (disp_y1     ),
-		.ratio_b (disp_ratio  ),
-		.valid_b (disp_svalid )
-	);
+	wire [2:0]  disp_shape0, disp_shape1, disp_shape2;
+	wire [10:0] disp0_x0, disp0_x1, disp1_x0, disp1_x1, disp2_x0, disp2_x1;
+	wire [9:0]  disp0_y0, disp0_y1, disp1_y0, disp1_y1, disp2_y0, disp2_y1;
+	wire        disp_valid0, disp_valid1, disp_valid2;
+	shape_result_cdc3 #(.XW(11),.YW(10)) u_shape_cdc0 (
+		.clk_a(w_cmos_pclk),.rst_a_n(rstn_sys),.load(shp_rvalid),
+		.shape_a(shp_shape0),.x0_a(shp0_x0),.x1_a(shp0_x1),.y0_a(shp0_y0),.y1_a(shp0_y1),
+		.clk_b(clk_pixel),.rst_b_n(rstn_pixel),.shape_b(disp_shape0),
+		.x0_b(disp0_x0),.x1_b(disp0_x1),.y0_b(disp0_y0),.y1_b(disp0_y1),.valid_b(disp_valid0));
+	shape_result_cdc3 #(.XW(11),.YW(10)) u_shape_cdc1 (
+		.clk_a(w_cmos_pclk),.rst_a_n(rstn_sys),.load(shp_rvalid),
+		.shape_a(shp_shape1),.x0_a(shp1_x0),.x1_a(shp1_x1),.y0_a(shp1_y0),.y1_a(shp1_y1),
+		.clk_b(clk_pixel),.rst_b_n(rstn_pixel),.shape_b(disp_shape1),
+		.x0_b(disp1_x0),.x1_b(disp1_x1),.y0_b(disp1_y0),.y1_b(disp1_y1),.valid_b(disp_valid1));
+	shape_result_cdc3 #(.XW(11),.YW(10)) u_shape_cdc2 (
+		.clk_a(w_cmos_pclk),.rst_a_n(rstn_sys),.load(shp_rvalid),
+		.shape_a(shp_shape2),.x0_a(shp2_x0),.x1_a(shp2_x1),.y0_a(shp2_y0),.y1_a(shp2_y1),
+		.clk_b(clk_pixel),.rst_b_n(rstn_pixel),.shape_b(disp_shape2),
+		.x0_b(disp2_x0),.x1_b(disp2_x1),.y0_b(disp2_y0),.y1_b(disp2_y1),.valid_b(disp_valid2));
 	//	模式2 且实时显示才叠加目标框/标签: 模式是准静态电平, 两级同步即可
 	reg  [1:0]  ov_en_sync = 2'b00;
 	reg  [1:0]  live_sync  = 2'b00;
@@ -1350,25 +1336,23 @@ wire        edge_bit = (sobel_mode_pclk == 2'd0) ? sobel_bit : canny_bit;
 	always @(posedge clk_pixel) live_sync  <= {live_sync[0],  (disp_mode_sys   == 2'd0)};
 	wire        ov_en = ov_en_sync[1] & live_sync[1];
 	wire [23:0] lcd_ov;
-	shape_overlay #(
-		.S         (2),		//文字放大 2 倍, 每个汉字 32x32
-		.X_SHIFT   (0),		//FWFT 读 FIFO, lcd_xpos 已等于图像列号(lyx 原版取 1 会偏一列)
-		.LABEL_X   (24),
-		.LABEL_Y   (24),
-		.BOX_THICK (2)
-	) u_shape_overlay (
+	shape_overlay_multi #(.S(1),.X_SHIFT(0),.BOX_THICK(3)) u_shape_overlay (
 		.clk   (clk_pixel   ),
 		.rst_n (rstn_pixel  ),
 		.de    (lcd_request & ov_en),
 		.xpos  (lcd_xpos    ),
 		.ypos  (lcd_ypos    ),
 		.base  (lcd_pixel   ),
-		.shape (disp_shape  ),
-		.bx0   ({1'b0, disp_x0}),
-		.bx1   ({1'b0, disp_x1}),
-		.by0   ({2'b0, disp_y0}),
-		.by1   ({2'b0, disp_y1}),
-		.valid (disp_svalid ),
+		.shape0(disp_shape0),
+		.bx00({1'b0,disp0_x0}),.bx01({1'b0,disp0_x1}),
+		.by00({2'b0,disp0_y0}),.by01({2'b0,disp0_y1}),
+		.shape1(disp_shape1),
+		.bx10({1'b0,disp1_x0}),.bx11({1'b0,disp1_x1}),
+		.by10({2'b0,disp1_y0}),.by11({2'b0,disp1_y1}),
+		.shape2(disp_shape2),
+		.bx20({1'b0,disp2_x0}),.bx21({1'b0,disp2_x1}),
+		.by20({2'b0,disp2_y0}),.by21({2'b0,disp2_y1}),
+		.valid(disp_valid0 | disp_valid1 | disp_valid2),
 		.rgb   (lcd_ov      )
 	);
 	wire 	[7:0] 	lcd_data_r = lcd_ov[23:16];
